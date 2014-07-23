@@ -31,6 +31,18 @@ $(singletons [d|
               
    data P = A | B | C deriving (Eq, Ord)
                                
+   -- for some reason, the Ord instance doesn't work                            
+   lep :: P -> P -> Bool
+   lep A A = True
+   lep A B = True
+   lep A C = True
+   lep B B = True
+   lep B C = True
+   lep C C = True
+   lep B A = False
+   lep C A = False
+   lep C B = False  
+
                       |])                                                   
   
 $(singletons [d| 
@@ -42,6 +54,7 @@ $(singletons [d|
    guard :: Bool -> Maybe a -> Maybe a
    guard True mx = mx
    guard False _ = Nothing
+
 
                       |])                                                   
 
@@ -61,46 +74,14 @@ valid (Node l p r) =
 -- for that reason, we have to also define these explicitly
 -- and closed type families don't seem to work
 -- on the other hand, we really need to have these definitions...
-       
-
-lep :: P -> P -> Bool
-lep A A = True
-lep A B = True
-lep A C = True
-lep B B = True
-lep B C = True
-lep C C = True
-lep a b = False
-
-type family LEP (a :: P) (b :: P) where
-   LEP A A = True
-   LEP A B = True
-   LEP A C = True
-   LEP B B = True
-   LEP B C = True
-   LEP C C = True
-   LEP B A = False
-   LEP C A = False
-   LEP C B = False   
-   
-sLep :: Sing p -> Sing q -> Sing (LEP p q) 
-sLep SA SA = STrue
-sLep SA SB = STrue
-sLep SA SC = STrue
-sLep SB SB = STrue
-sLep SB SC = STrue
-sLep SC SC = STrue
-sLep SB SA = SFalse
-sLep SC SA = SFalse
-sLep SC SB = SFalse
-
+  
 type family LOK (s :: STRange) (p :: P) :: Bool where
    LOK Zero p = True
-   LOK (Span a u) p = LEP u p
+   LOK (Span a u) p = Lep u p
    
 type family ROK (p :: P)  (s :: STRange)  :: Bool where   
    ROK p Zero = True
-   ROK p (Span l b) = LEP p l
+   ROK p (Span l b) = Lep p l
    
 type family ROut (s :: STRange) (p :: P) (t ::STRange) :: STRange where   
   ROut Zero p Zero = Span p p 
@@ -116,7 +97,7 @@ data BST3 (s :: STRange) where
   
 type family ORange (r :: STRange) (y :: P) :: STRange  where
      ORange Zero y = Span y y
-     ORange (Span l u) y = If (LEP y l) (Span y u) (If (LEP u y) (Span l y) (Span l u))
+     ORange (Span l u) y = If (Lep y l) (Span y u) (If (Lep u y) (Span l y) (Span l u))
   
 insert3 :: Sing y -> BST3 r -> BST3 (ORange r y)
 insert3 y Leaf3 = Node3 Leaf3 y Leaf3
@@ -126,7 +107,9 @@ insert3 y (Node3 lt p rt) = case sLep y p of
 
 -- Section 4
   
-data TB p = Top | Actual p | Bot deriving (Eq)
+$(singletons [d|
+      data TB p = Top | Actual p | Bot deriving (Eq)
+  |])
 
 -- a type class for term-level ordering
 instance Ord p => Ord (TB p) where
@@ -137,7 +120,7 @@ instance Ord p => Ord (TB p) where
   
 type family LE (a :: TB k)(b :: TB k) where
   LE a Top = True
-  LE (Actual a) (Actual b) = LEP a b
+  LE (Actual a) (Actual b) = Lep a b
   LE Bot b = True
   LE a b = False
   
@@ -157,19 +140,19 @@ data BST4 l u where
 -- that are 'obviously' anti-symmetric.
   
 data OWOTO p q where
-  L  :: (So (LEP x y)) => OWOTO x y
-  R  :: (So (LEP y x)) => OWOTO x y
+  LE  :: (So (Lep x y)) => OWOTO x y
+  GE  :: (So (Lep y x)) => OWOTO x y
 
 owoto :: Sing p -> Sing q -> OWOTO p q 
-owoto SA SA = L
-owoto SA SB = L
-owoto SA SC = L
-owoto SB SB = L
-owoto SB SC = L
-owoto SC SC = L
-owoto SB SA = R
-owoto SC SA = R
-owoto SC SB = R
+owoto SA SA = LE
+owoto SA SB = LE
+owoto SA SC = LE
+owoto SB SB = LE
+owoto SB SC = LE
+owoto SC SC = LE
+owoto SB SA = GE
+owoto SC SA = GE
+owoto SC SB = GE
 
 
 -- Section 6
@@ -190,6 +173,8 @@ data Lift b l u = So (LE l u) => Lift (b l u)
 -- actually no data
 data U2 l u = U2
 
+-- note that (Lift U2) is analogous to Conor's !
+
 -- an element within some bounds
 -- this is sort of like "Pivot LE LE l u", but we need to turn LE into a proposition 
 type Interval l u = Pivot (Lift U2) (Lift U2) l u
@@ -204,8 +189,8 @@ data BST7 (l :: (TB P)) (u :: (TB P)) where
 insert7 :: Interval l u -> BST7 l u -> BST7 l u 
 insert7 (Piv (Lift _) y (Lift _)) Leaf7 = Node7 (Piv (Lift Leaf7) y (Lift Leaf7))
 insert7 yy@(Piv (Lift _) y (Lift _)) (Node7 (Piv (Lift lt) p (Lift rt))) = case owoto y p of
-  L -> Node7 (Piv (Lift (insert7 (int y) lt)) p (Lift rt))
-  R -> Node7 (Piv (Lift lt) p (Lift (insert7 (int y) rt)))
+  LE -> Node7 (Piv (Lift (insert7 (int y) lt)) p (Lift rt))
+  GE -> Node7 (Piv (Lift lt) p (Lift (insert7 (int y) rt)))
   
 -- Section 8
 
@@ -216,8 +201,8 @@ data BST8 (l :: (TB P)) (u :: (TB P)) where
 insert8 :: Interval l u -> BST8 l u -> BST8 l u 
 insert8 (Piv (Lift _) y (Lift _)) Leaf8 = Node8 (Piv Leaf8 y Leaf8)
 insert8 (Piv (Lift _) y (Lift _)) (Node8 (Piv lt p rt)) = case owoto y p of
-  L -> Node8 (Piv (insert8 (int y) lt) p rt)
-  R -> Node8 (Piv lt p (insert8 (int y) rt))
+  LE -> Node8 (Piv (insert8 (int y) lt) p rt)
+  GE -> Node8 (Piv lt p (insert8 (int y) rt))
   
 rotR :: BST8 l u -> BST8 l u
 rotR (Node8 (Piv (Node8 (Piv lt m mt)) p rt)) = Node8 (Piv lt m (Node8 (Piv mt p rt)))
@@ -232,8 +217,8 @@ oinsert :: Interval l u -> OList l u -> OList l u
 oinsert (Piv (Lift _) y (Lift _)) Nil = Cons (Piv (Lift U2) y Nil)
 oinsert (Piv (Lift _) y (Lift _)) (Cons (Piv (Lift U2) p xs)) =
   case owoto y p of
-  L -> Cons (Piv (Lift U2) y (Cons (Piv (Lift U2) p xs)))
-  R -> Cons (Piv (Lift U2) p (oinsert (int y) xs))
+  LE -> Cons (Piv (Lift U2) y (Cons (Piv (Lift U2) p xs)))
+  GE -> Cons (Piv (Lift U2) p (oinsert (int y) xs))
   
   
 -- Section 16  (Non-generic 2-3 trees)
@@ -242,15 +227,18 @@ $(singletons [d|
     data Nat = O | S Nat deriving (Eq, Ord) 
                          
                          |])
-  
+      
 data TwoThree (h :: Nat) (l :: TB P) (u :: TB P) where  
   Leaf23 :: So (LE l u) => TwoThree O l u
   Node23_2 :: Pivot (TwoThree h) (TwoThree h) l u -> TwoThree (S h) l u
   Node23_3 :: Pivot (TwoThree h) (Pivot (TwoThree h) (TwoThree h)) l u -> TwoThree (S h) l u
 
+-- smart constructors
 node2 lt p rt = Node23_2 (Piv lt p rt)
 node3 lt p mt r rt = Node23_3 (Piv lt p (Piv mt r rt))
 
+-- Could replace with an Either, but I like the more informative
+-- data constructor names
 data InsertResult h l u where
   Same :: TwoThree h l u -> InsertResult h l u
   Bump :: Pivot (TwoThree h) (TwoThree h) l u -> InsertResult h l u
@@ -258,27 +246,27 @@ data InsertResult h l u where
 ins23 :: Sing h -> Interval l u -> TwoThree h l u -> InsertResult h l u
 ins23 h (Piv (Lift _) y (Lift _)) t = case (h, t) of 
   (SO, Leaf23) -> Bump (Piv Leaf23 y Leaf23)
-  -- (SS h, Leaf23)   -> impossible case
-  -- (SO, Node23_2 _) -> error
-  -- (SO, Node23_3 _) -> error
+  -- (SS h, Leaf23)   -> impossible
+  -- (SO, Node23_2 _) -> impossible
+  -- (SO, Node23_3 _) -> impossible
   (SS h, Node23_2 (Piv lt p rt)) -> case owoto y p of 
-    L -> case ins23 h (int y)  lt of 
+    LE -> case ins23 h (int y)  lt of 
       Same lt' -> Same (node2 lt' p rt)
       Bump (Piv llt r lrt) -> Same (node3 llt r lrt p rt)
-    R -> case ins23 h (int y)  rt of
+    GE -> case ins23 h (int y)  rt of
       Same rt' -> Same (node2 lt p rt')
       Bump (Piv rlt r rrt) -> Same (node3 lt p rlt r rrt)
   (SS h, Node23_3 (Piv lt p rt@(Piv mt q rrt))) -> case owoto y p of 
-    L -> case ins23 h (int y)  lt of 
+    LE -> case ins23 h (int y)  lt of 
       Same lt' -> Same (node3 lt' p mt q rrt)
       Bump (Piv llt r lrt) -> 
         Bump (Piv (node2 llt r lrt) p (node2 mt q rrt))
-    R -> case owoto y q of 
-      L -> case ins23 h (int y) mt of
+    GE -> case owoto y q of 
+      LE -> case ins23 h (int y) mt of
         Same mt' -> Same (node3 lt p mt' q rrt)
         Bump (Piv mlt r mrt) -> 
           Bump (Piv (node2 lt p mlt) r (node2 mrt q rrt))
-      R -> case ins23 h (int y) rrt of   
+      GE -> case ins23 h (int y) rrt of   
         Same rt' -> Same (node3 lt p mt q rt')
         Bump (Piv rlt r rrt') -> 
           Bump (Piv (node2 lt p mt) q (node2 rlt r rrt'))
@@ -293,10 +281,7 @@ insert p (Tree23 h t) = case ins23 h (int p) t of
   
 -- Section 17 -- Deletion
 
--- transitivity
-
--- trans :: (So (LEQ x y), So (LEQ y z)) => 
-
+-- Again could replace with an Either
 data Del23 h l u = 
     DelShort (Short23 h l u)
   | DelSame (TwoThree h l u) 
@@ -305,8 +290,8 @@ data Short23 h l u where
   -- h cannot be 0
   Short :: TwoThree h l u -> Short23 (S h) l u
   
+-- Maybe inline Short23 into this type?
   
-
 data Re2 h l u where
   ReShort :: Short23 (S h) l u -> Re2 h l u
   RePivot :: Pivot (TwoThree h) (TwoThree h) l u -> Re2 h l u
@@ -340,7 +325,7 @@ rd (RePivot (Piv lp p pu)) = DelSame (node2 lp p pu)
 
 r3t :: Pivot (Re2 h) (TwoThree h) l u -> Del23 (S h) l u
 r3t (Piv (RePivot (Piv lm m mp)) p pu) = DelSame (node3 lm m mp p pu)
-r3t (Piv (ReShort (Short lp)) p pu) = DelSame (node2 lp p pu)
+r3t (Piv (ReShort (Short lp)) p pu)    = DelSame (node2 lp p pu)
 
 t3r :: Pivot (TwoThree h) (Re2 h) l u -> Del23 (S h) l u
 t3r (Piv lp p (RePivot (Piv pq q qu))) = DelSame (node3 lp p pq q qu)
@@ -358,24 +343,35 @@ extr (SS h) (Node23_2 (Piv lp p pu)) = case extr h pu of
 extr (SS h) (Node23_3 (Piv lp p (Piv pq q qu))) = case extr h qu of   
   (Piv qr r (Lift U2)) -> t3r (Piv lp p (t2d (SS h) (Piv pq q qr))) -\ r
   
+  
+-- Transitivity  
+transP :: forall (x :: P)(p :: P) (z :: P) (a :: *). 
+  (So (Lep x p), So (Lep p z)) => Sing x -> Sing p -> Sing z -> (So (Lep x z) => a) -> a  
+transP px ps pz a = undefined
+
+trans :: forall (x :: TB P)(p :: P) (z :: TB P) (a :: *). 
+         (So (LE x (Actual p)), So (LE (Actual p) z)) => Sing x -> Sing p -> Sing z -> (So (LE x z) => a) -> a
+trans _ p STop a = a
+trans SBot p _ a = a
+trans (SActual l) p (SActual u) a = transP l p u a
+-- trans STop p _ impossible
+-- trans (Actual l) p SBot _ impossible
+
+
 --  To delete the pivot key from between two trees, we extract the rightmost key
 -- from the left tree, then weaken the bound on the right tree
 -- (traversing its left spine only). Again, we are sure that if the height
 -- remains the same, we shall deliver a 2-node.
 
-trans :: forall (x :: TB P)(p :: P) (z :: TB P) (a :: *). 
-         (So (LE x (Actual p)), So (LE (Actual p) z)) => Proxy x -> Sing p -> Proxy z -> (So (LE x z) => a) -> a
-trans = undefined
-
 delp :: forall h l u . Sing h -> Pivot (TwoThree h) (TwoThree h) l u -> Re2 h l u
 delp SO (Piv Leaf23 p Leaf23) = ReShort (Short leaf) where 
-  leaf = trans (undefined :: Proxy l) p (undefined :: Proxy u) Leaf23
+  leaf = trans (undefined :: Sing l) p (undefined :: Sing u) Leaf23
 delp (SS h) (Piv lp (p :: Sing p) pu) = case extr h lp of 
   (Piv lr (r :: Sing r) (Lift U2)) -> d2t (SS h) (Piv lr r (weak (SS h) pu)) where
      weak :: forall h' u'. Sing h' -> TwoThree h' (Actual p) u' -> 
              TwoThree h' (Actual r) u'
      weak SO Leaf23 = leaf where
-       leaf = trans (undefined :: Proxy (Actual r)) p (undefined :: Proxy u') Leaf23
+       leaf = trans (undefined :: Sing (Actual r)) p (undefined :: Sing u') Leaf23
      weak (SS h) (Node23_2 (Piv pq q qu)) = (Node23_2 (Piv (weak h pq) q qu))
      weak (SS h) (Node23_3 (Piv pq q qu)) = (Node23_3 (Piv (weak h pq) q qu))
        
@@ -383,24 +379,28 @@ delp (SS h) (Piv lp (p :: Sing p) pu) = case extr h lp of
 -- an identity function. Would be good to see if we could work subtyping into the system        
 -- somehow....       
 
--- finding the key to delete       
+-- Now that we can remove a key,
+-- we need only ﬁnd the key to remove. I have chosen to delete
+-- the topmost occurrence of the given key, and to return the tree
+-- unscathed if the key does not occur at all.
+
 del23 :: Sing h -> Interval l u -> TwoThree h l u -> Del23 h l u
 del23 SO _ Leaf23 = DelSame Leaf23
 del23 (SS h) (Piv (Lift U2) y (Lift U2)) t = case t of 
   (Node23_2 (Piv lp p pu)) -> case y %:== p of 
       STrue -> rd (delp h (Piv lp p pu))
       SFalse -> case owoto y p of 
-        L -> rd (d2t h (Piv (del23 h (int y) lp) p pu))
-        R -> rd (t2d h (Piv lp p (del23 h (int y) pu)))
+        LE -> rd (d2t h (Piv (del23 h (int y) lp) p pu))
+        GE -> rd (t2d h (Piv lp p (del23 h (int y) pu)))
   (Node23_3 (Piv lp p (Piv pq q qu))) -> case y %:== p of 
       STrue -> r3t (Piv (delp h (Piv lp p pq)) q qu)
       SFalse -> case owoto y p of
-        L -> r3t (Piv (d2t h (Piv (del23 h (int y) lp) p pq)) q qu)
-        R -> case y %:== q of 
+        LE -> r3t (Piv (d2t h (Piv (del23 h (int y) lp) p pq)) q qu)
+        GE -> case y %:== q of 
           STrue -> t3r (Piv lp p (delp h (Piv pq q qu)))
           SFalse -> case owoto y q of 
-            L -> r3t (Piv (t2d h (Piv lp p (del23 h (int y) pq))) q qu)
-            R -> t3r (Piv lp p (t2d h (Piv pq q (del23 h (int y) qu))))
+            LE -> r3t (Piv (t2d h (Piv lp p (del23 h (int y) pq))) q qu)
+            GE -> t3r (Piv lp p (t2d h (Piv pq q (del23 h (int y) qu))))
             
 -- Conor doesn't include it, but we should finish it out            
 
