@@ -164,7 +164,7 @@ owoto SC SB = GE
 
 -- Some pivot value p exists, where s holds before p and t holds after p
 data Pivot s t l u where
-  Piv :: s l (Actual p) -> Sing p -> t (Actual p) u -> Pivot s t l u
+  Piv :: (SingI p) => s l (Actual p) -> Sing p -> t (Actual p) u -> Pivot s t l u
 
 
 -- some data, with a proof about the bounds
@@ -178,8 +178,9 @@ data U2 l u = U2
 -- an element within some bounds
 -- this is sort of like "Pivot LE LE l u", but we need to turn LE into a proposition 
 type Interval l u = Pivot (Lift U2) (Lift U2) l u
+
 -- smart constructor for intervals
-int :: (So (LE l (Actual p)), So (LE (Actual p) u)) => Sing p -> Interval l u
+int :: (So (LE l (Actual p)), So (LE (Actual p) u), SingI p) => Sing p -> Interval l u
 int p = Piv (Lift U2) p (Lift U2)
 
 data BST7 (l :: (TB P)) (u :: (TB P)) where
@@ -274,7 +275,7 @@ ins23 h (Piv (Lift _) y (Lift _)) t = case (h, t) of
 data Tree23 =
   forall h. Tree23 (Sing h) (TwoThree h Bot Top)
   
-insert :: forall (p :: P). Sing p -> Tree23 -> Tree23  
+insert :: forall (p :: P). SingI p => Sing p -> Tree23 -> Tree23  
 insert p (Tree23 h t) = case ins23 h (int p) t of 
   Same t' -> Tree23 h t'
   Bump (Piv lt r rt) -> Tree23 (SS h) (node2 lt r rt)
@@ -363,28 +364,32 @@ trans (SActual l) p (SActual u) a = transP l p u a
 -- (traversing its left spine only). Again, we are sure that if the height
 -- remains the same, we shall deliver a 2-node.
 
-delp :: forall h l u . Sing h -> Pivot (TwoThree h) (TwoThree h) l u -> Re2 h l u
+delp :: forall h l u . (SingI l, SingI u) => Sing h -> Pivot (TwoThree h) (TwoThree h) l u -> Re2 h l u
 delp SO (Piv Leaf23 p Leaf23) = ReShort (Short leaf) where 
-  leaf = trans (undefined :: Sing l) p (undefined :: Sing u) Leaf23
+  leaf = trans (sing :: Sing l) p (sing :: Sing u) Leaf23
 delp (SS h) (Piv lp (p :: Sing p) pu) = case extr h lp of 
   (Piv lr (r :: Sing r) (Lift U2)) -> d2t (SS h) (Piv lr r (weak (SS h) pu)) where
-     weak :: forall h' u'. Sing h' -> TwoThree h' (Actual p) u' -> 
+     weak :: forall h' u'. (SingI u') => Sing h' -> TwoThree h' (Actual p) u' -> 
              TwoThree h' (Actual r) u'
      weak SO Leaf23 = leaf where
-       leaf = trans (undefined :: Sing (Actual r)) p (undefined :: Sing u') Leaf23
+       leaf = trans (sing :: Sing (Actual r)) p (sing :: Sing u') Leaf23
      weak (SS h) (Node23_2 (Piv pq q qu)) = (Node23_2 (Piv (weak h pq) q qu))
      weak (SS h) (Node23_3 (Piv pq q qu)) = (Node23_3 (Piv (weak h pq) q qu))
        
 -- Conor notes that it is unfortunate the weak must be executed, as it is essentially
 -- an identity function. Would be good to see if we could work subtyping into the system        
 -- somehow....       
+     
+-- I'll note that the proof of transitivity also unfortunately computational. I think this is
+-- an example where Haskell's treatment of erasable arguments is not sufficient. This is because there
+-- is no way to do induction during type class resolution.     
 
 -- Now that we can remove a key,
 -- we need only ﬁnd the key to remove. I have chosen to delete
 -- the topmost occurrence of the given key, and to return the tree
 -- unscathed if the key does not occur at all.
 
-del23 :: Sing h -> Interval l u -> TwoThree h l u -> Del23 h l u
+del23 :: (SingI l, SingI u) => Sing h -> Interval l u -> TwoThree h l u -> Del23 h l u
 del23 SO _ Leaf23 = DelSame Leaf23
 del23 (SS h) (Piv (Lift U2) y (Lift U2)) t = case t of 
   (Node23_2 (Piv lp p pu)) -> case y %:== p of 
@@ -408,8 +413,9 @@ del23 (SS h) (Piv (Lift U2) y (Lift U2)) t = case t of
 spred :: Sing (S n) -> Sing n
 spred (SS n) = n
 
+
 -- top-level deletion function
-delete :: forall (p :: P). Sing p -> Tree23 -> Tree23   
+delete :: forall (p :: P). SingI p => Sing p -> Tree23 -> Tree23   
 delete p (Tree23 h t) = case del23 h (int p) t of 
   DelShort (Short t') -> Tree23 (spred h) t'
   DelSame t -> Tree23 h t
