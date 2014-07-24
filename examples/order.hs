@@ -7,21 +7,26 @@ module Order where
 import Data.Singletons.Prelude
 import Data.Singletons.TH
 
+import qualified Test.QuickCheck (elements)
+import Test.QuickCheck hiding (elements)
+import Data.List (nub,sort)
+import Control.Monad hiding (guard)
+
 -- Section 2.
 
 -- Conor starts out with a large elimination that changes a boolean value into
--- a proposition. In Haskell, we repressent propositions by classes or
+-- a proposition. In Haskell, we repressent propositions by classes or by
 -- types. The latter is more expressive, but inconsistent. So we'll stick with 
 -- classes where we can.
 
 class So (b :: Bool) where
 instance So True   
 
--- The next definition, of the squash operator !, is unnecessary, at least for
+-- Conor's next definition, of the squash operator !, is unnecessary, at least for
 -- 'So'. Haskell will never let you see dictionaries, so they are already
--- hidden. Furthermore, So has no evidence, so it will be represented with 0-bits.
+-- hidden. Furthermore, 'So' has no evidence, so it will be represented with 0-bits.
 
--- Section 3. The Wrong attempt.
+-- Section 3.
 
 -- like Conor, we'll fix a parameter for the data in our trees.  we'll also
 -- make sure that we can promote it and compare it at the type level.
@@ -29,7 +34,7 @@ instance So True
   
 $(singletons [d| 
               
-   data P = A | B | C deriving (Eq, Ord)
+   data P = A | B | C deriving (Eq, Ord, Show)
                                
    -- for some reason, the Ord instance doesn't work                            
    lep :: P -> P -> Bool
@@ -43,7 +48,9 @@ $(singletons [d|
    lep C A = False
    lep C B = False  
 
-                      |])                                                   
+                      |])    
+
+--  The Wrong attempt.                                               
   
 $(singletons [d| 
                                
@@ -55,49 +62,51 @@ $(singletons [d|
    guard True mx = mx
    guard False _ = Nothing
 
+   -- we don't need these as term functions, but as singletons can 
+   -- promote them, we can write them this way
+   lOK :: STRange -> P -> Bool
+   lOK Zero p = True
+   lOK (Span a u) p = lep u p 
 
-                      |])                                                   
+   rOK ::  P -> STRange -> Bool
+   rOK p Zero = True
+   rOK p (Span l b) = lep p l
 
--- note, some bug in singletons library prevents this from promotion. The 
--- problem is with the ord instance (p <= c).
+   rOut :: STRange -> P -> STRange -> STRange 
+   rOut Zero p Zero = Span p p 
+   rOut Zero p (Span a u) = Span p u
+   rOut (Span l b) p Zero = Span l p
+   rOut (Span l a) p (Span b u) = Span l u
+
+   oRange :: STRange -> P -> STRange  
+   oRange Zero y = Span y y
+   oRange (Span l u) y = 
+      if lep y l then Span y u
+        else if lep u y then Span l y 
+        else Span l u
+
+   |])                                                   
+
+-- note, some bug in singletons library prevents this from promotion.
+
 valid :: Tree -> Maybe STRange
 valid Leaf = Just Zero
 valid (Node l p r) = 
      case (valid l, valid r) of 
        (Just Zero, Just Zero) -> Just (Span p p)
-       (Just Zero, Just (Span c d)) -> guard (p <= c) (Just (Span p d))
-       (Just (Span a b), Just Zero) -> guard (b <= p) (Just (Span a p))
+       (Just Zero, Just (Span c d)) -> guard (lep p c) (Just (Span p d))
+       (Just (Span a b), Just Zero) -> guard (lep b p) (Just (Span a p))
        (Just (Span a b), Just (Span c d)) -> 
-          guard (b <= p) (guard (p <= c) (Just (Span a d)))
+          guard (lep b p) (guard (lep p c) (Just (Span a d)))
        (_ , _) -> Nothing
-
--- for that reason, we have to also define these explicitly
--- and closed type families don't seem to work
--- on the other hand, we really need to have these definitions...
   
-type family LOK (s :: STRange) (p :: P) :: Bool where
-   LOK Zero p = True
-   LOK (Span a u) p = Lep u p
-   
-type family ROK (p :: P)  (s :: STRange)  :: Bool where   
-   ROK p Zero = True
-   ROK p (Span l b) = Lep p l
-   
-type family ROut (s :: STRange) (p :: P) (t ::STRange) :: STRange where   
-  ROut Zero p Zero = Span p p 
-  ROut Zero p (Span a u) = Span p u
-  ROut (Span l b) p Zero = Span l p
-  ROut (Span l a) p (Span b u) = Span l u
+-- BSTs with refinement that guarantees ordering
 
 data BST3 (s :: STRange) where
   Leaf3 :: BST3 Zero
   Node3 :: (So (LOK l p), So (ROK p r)) => BST3 l -> Sing p -> BST3 r -> BST3 (ROut l p r)
 
--- Oops, can't write insert for this type
-  
-type family ORange (r :: STRange) (y :: P) :: STRange  where
-     ORange Zero y = Span y y
-     ORange (Span l u) y = If (Lep y l) (Span y u) (If (Lep u y) (Span l y) (Span l u))
+-- As Conor notes, we can't readily write insert for this type
   
 insert3 :: Sing y -> BST3 r -> BST3 (ORange r y)
 insert3 y Leaf3 = Node3 Leaf3 y Leaf3
@@ -108,42 +117,117 @@ insert3 y (Node3 lt p rt) = case sLep y p of
 -- Section 4
   
 $(singletons [d|
-      data TB p = Top | Actual p | Bot deriving (Eq)
+              
+    -- extending types with top and bottom elements
+    -- Actual is # in the Agda version              
+    data TB p = Top | Actual p | Bot deriving (Eq)
+                                                                      
   |])
 
--- a type class for term-level ordering
-instance Ord p => Ord (TB p) where
-  _ <= Top = True
-  (Actual a) <= (Actual b) = a <= b
-  Bot <= _ = True
-  _ <= _ = False
+
   
-type family LE (a :: TB k)(b :: TB k) where
+-- type-level function for ordering        
+type family LE (a :: TB P)(b :: TB P) where
   LE a Top = True
   LE (Actual a) (Actual b) = Lep a b
   LE Bot b = True
   LE a b = False
+
+{- Note that we can't write the singleton version of this 
+   function as using the same GADT pattern
+   matching isn't as clever as closed type families. 
+   So the last case doesn't type check. 
+
+sLE :: Sing a -> Sing b -> Sing (LE a b) 
+sLE a STop = STrue
+sLE (SActual a) (SActual b) = sLep a b 
+sLE SBot b = STrue
+sLE a b = SFalse
+
+-}
   
+-- instead we need to expand all of the cases out 
+-- (It would be good if singletons could automatically 
+-- generate this definition for closed type families)  
+sLE :: Sing a -> Sing b -> Sing (LE a b)   
+sLE SBot SBot = STrue      
+sLE SBot (SActual b) = STrue
+sLE SBot STop = STrue
+sLE (SActual a) SBot = SFalse   
+sLE (SActual a) (SActual b) = sLep a b
+sLE (SActual a) STop = STrue
+sLE STop SBot = SFalse
+sLE STop (SActual b) = SFalse
+sLE STop STop = STrue       
+
+    
+-- We can now index search trees by a pair of loose bounds, not
+-- measuring the range of the contents exactly, but constraining it
+-- sufficiently. At each node, we can require that the pivot falls in the
+-- interval, then use the pivot to bound the subtrees.
 
 data BST4 l u where 
   Leaf4 :: BST4 l u   
-  Node4 :: (So (LE l (Actual p)), So (LE (Actual p) r)) =>
+  Node4 :: (So (LE l (Actual p)), So (LE (Actual p) u)) =>
     BST4 l (Actual p) -> Sing p -> BST4 (Actual p) u -> BST4 l u
 
--- still can't define insert
+-- However, as Conor says, we still can't define insert without knowing that 
+-- Le (Actual y) (Actual p) ~ False implies that Le (Actual p) (Actual y) ~ True  
+-- We can write a short proof that that is the case, but (in Haskell) this proof must be 
+-- executed at run time.
   
--- Section 5  
+antisym :: forall (y :: P) (p :: P) (a :: *). 
+           (Lep y p ~ False) => Sing y -> Sing p -> (So (Lep p y) => a) -> a 
+antisym SB SA a = a
+antisym SC SA a = a
+antisym SC SB a = a
+-- all other cases do not type check.
+-- antisym SA SA a = undefined  
   
--- one way or another. We can't just use True / False because that doesn't
--- give us the right evidence.  
--- However: this strategy is limited to relations
--- that are 'obviously' anti-symmetric.
+insert4 :: forall (y :: P)(l :: TB P)(u :: TB P). 
+           (So (LE l (Actual y)), So (LE (Actual y) u)) => Sing y -> BST4 l u -> BST4 l u 
+insert4 y Leaf4 = Node4 Leaf4 y Leaf4
+insert4 y (Node4 lt p rt) = case sLep y p of 
+  STrue -> Node4 (insert4 y lt) p rt
+  SFalse -> Node4 lt p (antisym y p (insert4 y rt))
   
+-- Section 5    
+  
+-- We're going to redefine our term level discrimator
+-- for bounded Ps that will give us 
+-- more properties directly from the definition.  
+    
+-- Conor calls this function 'owoto' or 'one way or the other'
+-- The result of this discriminator gives us the evidence that we need, 
+-- either So(Lep p q) or So (Lep q p).
+  
+-- Conor defines this result type using combinators like below, but because of (a)   
+-- ambiguity and (b) weaker view patterns, we'll just define a new datatype.
+
+{-
+data Constrain (b :: Bool) = (So b) => Bang
+
+type OWOTO (p :: P) (q :: P) = Either (Constrain (Lep p q)) (Constrain (Lep q p))
+
+le :: (So (Lep p q)) => OWOTO p q
+le = Left Bang
+ge :: (So (Lep q p)) => OWOTO p q
+ge = Right Bang
+
+-}
+
+data OWOTO (p :: P) (q :: P) = So (Lep p q) => LE | So (Lep q p) => GE
+
+
+{-  
+-- also could be written as a GADT
 data OWOTO p q where
   LE  :: (So (Lep x y)) => OWOTO x y
   GE  :: (So (Lep y x)) => OWOTO x y
+-}
 
-owoto :: Sing p -> Sing q -> OWOTO p q 
+
+owoto :: forall (p :: P) (q :: P). Sing p -> Sing q -> OWOTO p q 
 owoto SA SA = LE
 owoto SA SB = LE
 owoto SA SC = LE
@@ -156,15 +240,10 @@ owoto SC SB = GE
 
 
 -- Section 6
-  
--- Skipping general relation stuff. Will use P -> P -> * instead of uncurried version.             
+
+-- Skipping general relation stuff. Will use P -> P -> * instead of uncurried version (P,P) -> *.             
               
 -- Section 7
-
-
--- Some pivot value p exists, where s holds before p and t holds after p
-data Pivot s t l u where
-  Piv :: (SingI p) => s l (Actual p) -> Sing p -> t (Actual p) u -> Pivot s t l u
 
 
 -- some data, with a proof about the bounds
@@ -175,6 +254,10 @@ data U2 l u = U2
 
 -- note that (Lift U2) is analogous to Conor's !
 
+-- Some pivot value p exists, where s holds before p and t holds after p
+data Pivot s t l u where
+  Piv :: (SingI p) => s l (Actual p) -> Sing p -> t (Actual p) u -> Pivot s t l u
+
 -- an element within some bounds
 -- this is sort of like "Pivot LE LE l u", but we need to turn LE into a proposition 
 type Interval l u = Pivot (Lift U2) (Lift U2) l u
@@ -182,6 +265,8 @@ type Interval l u = Pivot (Lift U2) (Lift U2) l u
 -- smart constructor for intervals
 int :: (So (LE l (Actual p)), So (LE (Actual p) u), SingI p) => Sing p -> Interval l u
 int p = Piv (Lift U2) p (Lift U2)
+
+-- now we can define binary search trees & insertion where the order is guaranteed. 
 
 data BST7 (l :: (TB P)) (u :: (TB P)) where
   Leaf7 :: BST7 l u
@@ -194,6 +279,8 @@ insert7 yy@(Piv (Lift _) y (Lift _)) (Node7 (Piv (Lift lt) p (Lift rt))) = case 
   GE -> Node7 (Piv (Lift lt) p (Lift (insert7 (int y) rt)))
   
 -- Section 8
+  
+-- pushing the constraints to the leaves.
 
 data BST8 (l :: (TB P)) (u :: (TB P)) where
   Leaf8 :: So (LE l u) => BST8 l u
@@ -226,13 +313,14 @@ oinsert (Piv (Lift _) y (Lift _)) (Cons (Piv (Lift U2) p xs)) =
   
 $(singletons [d|
     data Nat = O | S Nat deriving (Eq, Ord) 
-                         
-                         |])
+    |])
       
-data TwoThree (h :: Nat) (l :: TB P) (u :: TB P) where  
-  Leaf23 :: So (LE l u) => TwoThree O l u
+  
+data TwoThree :: Nat -> TB P -> TB P -> * where  
+  Leaf23   :: So (LE l u) => TwoThree O l u
   Node23_2 :: Pivot (TwoThree h) (TwoThree h) l u -> TwoThree (S h) l u
   Node23_3 :: Pivot (TwoThree h) (Pivot (TwoThree h) (TwoThree h)) l u -> TwoThree (S h) l u
+
 
 -- smart constructors
 node2 lt p rt = Node23_2 (Piv lt p rt)
@@ -275,10 +363,55 @@ ins23 h (Piv (Lift _) y (Lift _)) t = case (h, t) of
 data Tree23 =
   forall h. Tree23 (Sing h) (TwoThree h Bot Top)
   
-insert :: forall (p :: P). SingI p => Sing p -> Tree23 -> Tree23  
-insert p (Tree23 h t) = case ins23 h (int p) t of 
-  Same t' -> Tree23 h t'
-  Bump (Piv lt r rt) -> Tree23 (SS h) (node2 lt r rt)
+insert :: P -> Tree23 -> Tree23  
+insert p (Tree23 h t) = case (toSing p) of 
+    SomeSing p' -> withSingI p'
+      (case ins23 h (int p') t of 
+         Same t' -> Tree23 h t'
+         Bump (Piv lt r rt) -> Tree23 (SS h) (node2 lt r rt))
+  
+-- Look up in TwoThree trees  
+
+member :: P -> Tree23 -> Bool 
+member p (Tree23 h t) = case (toSing p) of 
+    SomeSing p' -> withSingI p' (mem (int p') t)
+  
+mem :: forall (l :: TB P)(u :: TB P) (h :: Nat). Interval l u -> TwoThree h l u -> Bool
+mem p Leaf23 = False
+mem (Piv (Lift _) p (Lift _)) t = case t of 
+    (Node23_2 (Piv lt r rt)) -> case p %:== r of 
+       STrue -> True
+       SFalse -> case owoto p r of 
+         LE -> mem (int p) lt  
+         GE -> mem (int p) rt
+    (Node23_3 (Piv lt r (Piv mt q rt))) -> case p %:== r of 
+       STrue -> True
+       SFalse -> case owoto p r of 
+         LE -> mem (int p) lt  
+         GE -> case p %:== q of 
+           STrue -> True
+           SFalse -> case owoto p q of 
+             LE -> mem (int p) mt 
+             GE -> mem (int p) rt
+             
+-- Flatten (nongeneric)             
+             
+elements :: Tree23 -> [P]             
+elements (Tree23 h t) = el t where
+  el :: forall h l u. TwoThree h l u -> [P]
+  el Leaf23 = []
+  el (Node23_2 (Piv lt r rt)) = el lt ++ [fromSing r] ++ el rt
+  el (Node23_3 (Piv lt p (Piv mt r rt))) = el lt ++ [fromSing p] ++ el mt ++ [fromSing r] ++ el rt
+                                          
+instance Show Tree23 where
+  show (Tree23 h t) = sho t where
+    sho :: forall h l u. TwoThree h l u -> String
+    sho Leaf23 = "no0"
+    sho (Node23_2 (Piv lt r rt)) = "(no2" ++ sho lt ++ show (fromSing r) ++ sho rt ++ ")"
+    sho (Node23_3 (Piv lt p (Piv mt r rt))) = "(no3" ++ sho lt ++ show (fromSing p) ++ sho mt 
+                                              ++ show (fromSing r) ++ sho rt ++ ")"
+      
+                                              
   
 -- Section 17 -- Deletion
 
@@ -415,8 +548,52 @@ spred (SS n) = n
 
 
 -- top-level deletion function
-delete :: forall (p :: P). SingI p => Sing p -> Tree23 -> Tree23   
-delete p (Tree23 h t) = case del23 h (int p) t of 
-  DelShort (Short t') -> Tree23 (spred h) t'
-  DelSame t -> Tree23 h t
-    
+delete :: P -> Tree23 -> Tree23   
+delete p (Tree23 h t) = case (toSing p) of 
+    SomeSing p' -> withSingI p'   
+      (case del23 h (int p') t of 
+         DelShort (Short t') -> Tree23 (spred h) t'
+         DelSame t -> Tree23 h t)
+
+empty :: Tree23
+empty = Tree23 SO Leaf23
+
+--  The elements of the set are sorted.
+
+prop_elements :: Tree23 -> Bool
+prop_elements x = elements x == (sort (elements x)) &&
+      all (\y -> member y x) (elements x)
+
+prop_insert1 :: P -> Tree23 -> Bool
+prop_insert1 x t = member x (insert x t)
+
+-- And that the new set also contains all of the original elements.
+
+prop_insert2 :: P -> Tree23 -> Bool
+prop_insert2 x t = all (\y -> member y t') (elements t) where 
+  t' = insert x t
+  
+prop_delete_spec1 :: Tree23 -> Bool
+prop_delete_spec1 t = all (\x -> not (member x (delete x t))) (elements t)
+
+prop_delete_spec2 :: Tree23 -> Bool
+prop_delete_spec2 t = all (\(x,y) -> x == y || (member y (delete x t))) allpairs where
+  allpairs = [ (x,y) | x <- elements t, y <- elements t ]
+
+prop_delete_spec3 :: Tree23 -> P -> Property
+prop_delete_spec3 t x = not (x `elem` elements t) ==> (elements (delete x t) == elements t)
+
+{-
+check_delete = do
+  quickCheckWith (stdArgs {maxSuccess=1000}) prop_delete_spec1
+  quickCheckWith (stdArgs {maxSuccess=1000}) prop_delete_spec2
+  quickCheckWith (stdArgs {maxSuccess=1000}) prop_delete_spec3
+-}
+  
+  
+instance Arbitrary P where  
+  arbitrary = Test.QuickCheck.elements [A,B,C]
+  
+instance (Ord a) => Arbitrary Tree23  where
+  arbitrary = liftM (foldr insert empty) arbitrary
+  
