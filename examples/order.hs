@@ -87,7 +87,7 @@ $(singletons [d|
 
    |])                                                   
 
--- note, some bug in singletons library prevents this from promotion.
+-- note: some bug in singletons library prevents this from promotion.
 
 valid :: Tree -> Maybe STRange
 valid Leaf = Just Zero
@@ -161,7 +161,7 @@ sLE STop (SActual b) = SFalse
 sLE STop STop = STrue       
 
     
--- We can now index search trees by a pair of loose bounds, not
+-- Conor: We can now index search trees by a pair of loose bounds, not
 -- measuring the range of the contents exactly, but constraining it
 -- sufficiently. At each node, we can require that the pivot falls in the
 -- interval, then use the pivot to bound the subtrees.
@@ -217,15 +217,6 @@ ge = Right Bang
 -}
 
 data OWOTO (p :: P) (q :: P) = So (Lep p q) => LE | So (Lep q p) => GE
-
-
-{-  
--- also could be written as a GADT
-data OWOTO p q where
-  LE  :: (So (Lep x y)) => OWOTO x y
-  GE  :: (So (Lep y x)) => OWOTO x y
--}
-
 
 owoto :: forall (p :: P) (q :: P). Sing p -> Sing q -> OWOTO p q 
 owoto SA SA = LE
@@ -309,7 +300,7 @@ oinsert (Piv (Lift _) y (Lift _)) (Cons (Piv (Lift U2) p xs)) =
   GE -> Cons (Piv (Lift U2) p (oinsert (int y) xs))
   
   
--- Section 16  (Non-generic 2-3 trees)
+-- Section 16  (2-3 trees)
   
 $(singletons [d|
     data Nat = O | S Nat deriving (Eq, Ord) 
@@ -328,9 +319,10 @@ node3 lt p mt r rt = Node23_3 (Piv lt p (Piv mt r rt))
 
 -- Could replace with an Either, but I like the more informative
 -- data constructor names
-data InsertResult h l u where
-  Same :: TwoThree h l u -> InsertResult h l u
-  Bump :: Pivot (TwoThree h) (TwoThree h) l u -> InsertResult h l u
+data InsertResult h l u = 
+  Same (TwoThree h l u) | Bump (Pivot (TwoThree h) (TwoThree h) l u)
+
+-- type InsertResult h l u = Either (TwoThree h l u) (Pivot (TwoThree h) (TwoThree h) l u)
 
 ins23 :: Sing h -> Interval l u -> TwoThree h l u -> InsertResult h l u
 ins23 h (Piv (Lift _) y (Lift _)) t = case (h, t) of 
@@ -394,7 +386,7 @@ mem (Piv (Lift _) p (Lift _)) t = case t of
              LE -> mem (int p) mt 
              GE -> mem (int p) rt
              
--- Flatten (nongeneric)             
+-- Flatten (nongeneric and slow implementations)             
              
 elements :: Tree23 -> [P]             
 elements (Tree23 h t) = el t where
@@ -424,11 +416,9 @@ data Short23 h l u where
   -- h cannot be 0
   Short :: TwoThree h l u -> Short23 (S h) l u
   
--- Maybe inline Short23 into this type?
-  
-data Re2 h l u where
-  ReShort :: Short23 (S h) l u -> Re2 h l u
-  RePivot :: Pivot (TwoThree h) (TwoThree h) l u -> Re2 h l u
+-- Again could replace with an Either  
+-- Maybe inline Short23 into this type?  
+data Re2 h l u = ReShort (Short23 (S h) l u) | RePivot (Pivot (TwoThree h) (TwoThree h) l u)
   
 -- rebalancing  
 d2t :: Sing h -> Pivot (Del23 h) (TwoThree h) l u -> Re2 h l u
@@ -449,7 +439,7 @@ t2d (SS h) (Piv (Node23_3 (Piv lm m (Piv mn n np))) p (DelShort (Short pu))) =
   RePivot (Piv (node2 lm m mn) n (node2 np p pu))
   
   
--- The adaptor |rd| allows us to throw away the knowledge that the full
+-- Conor: The adaptor |rd| allows us to throw away the knowledge that the full
 -- height reconstruction must be a 2-node if we do not need it, but the
 -- extra detail allows us to use 2-node reconstructors in the course of
 -- 3-node reconstruction.   
@@ -468,7 +458,7 @@ t3r (Piv lp p (ReShort (Short pu)))    = DelSame (node2 lp p pu)
 -- keep extracted element on the right and hide the ordering proof
 lr -\ r = Piv lr r (Lift U2)
 
---  extracting the extreme right key from a nonempty left subtree
+-- extracting the extreme right key from a nonempty left subtree
 extr  :: Sing h -> TwoThree (S h) l u  -> Pivot (Del23 (S h)) (Lift U2) l u
 extr SO (Node23_2 (Piv lr r Leaf23)) = (DelShort (Short lr)) -\ r 
 extr SO (Node23_3 (Piv lp p (Piv pr r Leaf23))) = (DelSame (node2 lp p pr)) -\ r
@@ -476,7 +466,6 @@ extr (SS h) (Node23_2 (Piv lp p pu)) = case extr h pu of
   (Piv pr r (Lift U2)) -> rd (t2d (SS h) (Piv lp p pr)) -\ r
 extr (SS h) (Node23_3 (Piv lp p (Piv pq q qu))) = case extr h qu of   
   (Piv qr r (Lift U2)) -> t3r (Piv lp p (t2d (SS h) (Piv pq q qr))) -\ r
-  
   
 -- Transitivity  
 transP :: forall (x :: P)(p :: P) (z :: P) (a :: *). 
@@ -492,7 +481,7 @@ trans (SActual l) p (SActual u) a = transP l p u a
 -- trans (Actual l) p SBot _ impossible
 
 
---  To delete the pivot key from between two trees, we extract the rightmost key
+-- Conor: To delete the pivot key from between two trees, we extract the rightmost key
 -- from the left tree, then weaken the bound on the right tree
 -- (traversing its left spine only). Again, we are sure that if the height
 -- remains the same, we shall deliver a 2-node.
@@ -513,14 +502,9 @@ delp (SS h) (Piv lp (p :: Sing p) pu) = case extr h lp of
 -- an identity function. Would be good to see if we could work subtyping into the system        
 -- somehow....       
      
--- I'll note that the proof of transitivity also unfortunately computational. I think this is
--- an example where Haskell's treatment of erasable arguments is not sufficient. This is because there
--- is no way to do induction during type class resolution.     
-
--- Now that we can remove a key,
--- we need only ﬁnd the key to remove. I have chosen to delete
--- the topmost occurrence of the given key, and to return the tree
--- unscathed if the key does not occur at all.
+-- Conor: Now that we can remove a key, we need only ﬁnd the key to remove. I have
+-- chosen to delete the topmost occurrence of the given key, and to return the
+-- tree unscathed if the key does not occur at all.
 
 del23 :: (SingI l, SingI u) => Sing h -> Interval l u -> TwoThree h l u -> Del23 h l u
 del23 SO _ Leaf23 = DelSame Leaf23
@@ -540,8 +524,6 @@ del23 (SS h) (Piv (Lift U2) y (Lift U2)) t = case t of
             LE -> r3t (Piv (t2d h (Piv lp p (del23 h (int y) pq))) q qu)
             GE -> t3r (Piv lp p (t2d h (Piv pq q (del23 h (int y) qu))))
             
--- Conor doesn't include it, but we should finish it out            
-
 -- this should be in the TypeLits library!
 spred :: Sing (S n) -> Sing n
 spred (SS n) = n
@@ -557,39 +539,6 @@ delete p (Tree23 h t) = case (toSing p) of
 
 empty :: Tree23
 empty = Tree23 SO Leaf23
-
---  The elements of the set are sorted.
-
-prop_elements :: Tree23 -> Bool
-prop_elements x = elements x == (sort (elements x)) &&
-      all (\y -> member y x) (elements x)
-
-prop_insert1 :: P -> Tree23 -> Bool
-prop_insert1 x t = member x (insert x t)
-
--- And that the new set also contains all of the original elements.
-
-prop_insert2 :: P -> Tree23 -> Bool
-prop_insert2 x t = all (\y -> member y t') (elements t) where 
-  t' = insert x t
-  
-prop_delete_spec1 :: Tree23 -> Bool
-prop_delete_spec1 t = all (\x -> not (member x (delete x t))) (elements t)
-
-prop_delete_spec2 :: Tree23 -> Bool
-prop_delete_spec2 t = all (\(x,y) -> x == y || (member y (delete x t))) allpairs where
-  allpairs = [ (x,y) | x <- elements t, y <- elements t ]
-
-prop_delete_spec3 :: Tree23 -> P -> Property
-prop_delete_spec3 t x = not (x `elem` elements t) ==> (elements (delete x t) == elements t)
-
-{-
-check_delete = do
-  quickCheckWith (stdArgs {maxSuccess=1000}) prop_delete_spec1
-  quickCheckWith (stdArgs {maxSuccess=1000}) prop_delete_spec2
-  quickCheckWith (stdArgs {maxSuccess=1000}) prop_delete_spec3
--}
-  
   
 instance Arbitrary P where  
   arbitrary = Test.QuickCheck.elements [A,B,C]
