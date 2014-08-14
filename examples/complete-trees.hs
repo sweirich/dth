@@ -9,7 +9,7 @@
 -- by the type system.
 
 {-
--- Balanced trees with nested datatypes
+-- Complete trees with nested datatypes
 
 data Z a = Leaf
 data S t a = Node (t a, a, t a)
@@ -43,7 +43,7 @@ height t = ht t where
 data Z
 data S n
 
--- Balanced trees with Higher-order polymporphism
+-- Complete trees with Higher-order polymporphism
 class Church repr where
   leaf :: repr Z a 
   node :: repr h a -> a -> repr h a -> repr (S h) a 
@@ -74,15 +74,15 @@ height (Tree t) = unHt t
 data Leaf a = Leaf
 data Node t1 t2 a = Node (t1 a) a (t2 a)
 
-class BalancedTree t where
+class CompleteTree t where
   fold :: b -> (b -> a -> b -> b) -> t a -> b
   
-instance BalancedTree Leaf where  
+instance CompleteTree Leaf where  
   fold l n Leaf = l
-instance (BalancedTree t) => BalancedTree (Node t t) where
+instance (CompleteTree t) => CompleteTree (Node t t) where
   fold l n (Node t1 a t2) = n (fold l n t1) a (fold l n t2)
     
-data Tree a = forall t. BalancedTree t => Tree (t a)
+data Tree a = forall t. CompleteTree t => Tree (t a)
 
 zero' = Leaf
 zero = Tree zero'
@@ -99,15 +99,15 @@ height (Tree t) = fold 0 (\x _ y -> x + 1) t
                     
 {-
 {-# LANGUAGE GADTs, DataKinds, ExistentialQuantification #-}        
--- Balanced trees with GADTs
+-- Complete trees with GADTs
 
 data Nat = Z | S Nat
 
-data Balanced h a where
-  Leaf :: Balanced Z a
-  Node :: Balanced h a -> a -> Balanced h a -> Balanced (S h) a
+data Complete h a where
+  Leaf :: Complete Z a
+  Node :: Complete h a -> a -> Complete h a -> Complete (S h) a
   
-data Tree a = forall h. Tree (Balanced h a)
+data Tree a = forall h. Tree (Complete h a)
 
 zero' = Leaf
 zero = Tree zero'
