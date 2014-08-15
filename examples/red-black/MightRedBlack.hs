@@ -4,23 +4,28 @@
 --   http://matt.might.net/articles/red-black-delete/code/RedBlackSet.hs
 -- Slides:
 --   http://matt.might.net/papers/might2014redblack-talk.pdf
+-- Draft paper:
+--   http://matt.might.net/tmp/red-black-pearl.pdf
 
 module MightRedBlack where
 
 import Prelude hiding (max)
+import Control.Monad 
+import Test.QuickCheck hiding (elements)
+import Data.List(nub,sort)
 
 data Color = 
    R  -- red
  | B  -- black
  | BB -- double black
  | NB -- negative black
- deriving (Show)
+ deriving (Show, Eq)
 
 data RBSet a =
    E  -- black leaf
  | EE -- double black leaf
  | T Color (RBSet a) a (RBSet a)
- deriving (Show)
+ deriving (Show, Eq)
 
  -- Private auxiliary functions --
 
@@ -29,6 +34,8 @@ redden (T _ a x b) = T R a x b
 
 blacken :: RBSet a -> RBSet a
 blacken (T _ a x b) = T B a x b
+blacken E = E
+blacken EE = E
 
 isBB :: RBSet a -> Bool
 isBB EE = True
@@ -112,13 +119,23 @@ max E = error "no largest element"
 max (T _ _ x E) = x
 max (T _ _ x r) = max r
 
+-- Remove this node: it might leave behind a double black node
 remove :: RBSet a -> RBSet a
-remove E = E
+-- remove E = E   -- impossible!
+-- ; Leaves are easiest to kill:
 remove (T R E _ E) = E
 remove (T B E _ E) = EE
+-- ; Killing a node with one child;
+-- ; parent or child is red:
+remove (T R E _ child) = child
+remove (T R child _ E) = child
 remove (T B E _ (T R a x b)) = T B a x b
 remove (T B (T R a x b) _ E) = T B a x b
-remove (T color l@(T R a x b) y r) = bubble color l' mx r 
+-- ; Killing a black node with one black child:
+remove (T B E _ child@(T B _ _ _)) = blacker' child
+remove (T B child@(T B _ _ _) _ E) = blacker' child
+-- ; Killing a node with two sub-trees:
+remove (T color l y r) = bubble color l' mx r 
  where mx = max l
        l' = removeMax l
 
@@ -128,13 +145,93 @@ removeMax s@(T _ _ _ E) = remove s
 removeMax s@(T color l x r) = bubble color l x (removeMax r)
 
 delete :: (Ord a) => a -> RBSet a -> RBSet a
-delete x s = T B a x b
- where del E = E
-       del s@(T color a y b) | x < y     = bubble color (del a) y b
-                             | x > y     = bubble color a y (del b)
-                             | otherwise = remove s
-       T _ a x b = del s
+delete x s = blacken (del x s)
+       
+del x E = E
+del x s@(T color a' y b') | x < y   = bubble color (del x a') y b'
+                        | x > y     = bubble color a' y (del x b')
+                        | otherwise = remove s
 
+
+--- Testing code
+       
+elements :: Ord a => RBSet a -> [a]
+elements t = aux t [] where
+      aux E acc = acc
+      aux (T _ a x b) acc = aux a (x : aux b acc)
+
+instance (Ord a, Arbitrary a) => Arbitrary (RBSet a)  where
+  arbitrary = liftM (foldr insert empty) arbitrary
+       
+prop_BST :: RBSet Int -> Bool
+prop_BST t = isSortedNoDups (elements t)
+
+color :: RBSet a -> Color
+color (T c _ _ _) = c
+color E = B
+
+
+prop_Rb2 :: RBSet Int -> Bool
+prop_Rb2 t = color t == B
+
+prop_Rb3 :: RBSet Int -> Bool
+prop_Rb3 t = fst (aux t) where 
+  aux E = (True, 0)
+  aux (T c a x b) = (h1 == h2 && b1 && b2, if c == B then h1 + 1 else h1) where
+      (b1 , h1) = aux a
+      (b2 , h2) = aux b
+
+prop_Rb4 :: RBSet Int  -> Bool
+prop_Rb4 E = True
+prop_Rb4 (T R a x b) = color a == B && color b == B && prop_Rb4 a && prop_Rb4 b
+prop_Rb4 (T B a x b) = prop_Rb4 a && prop_Rb4 b
+
+
+isSortedNoDups :: Ord a => [a] -> Bool  
+isSortedNoDups x = nub (sort x) == x
+              
+                            
+prop_delete_spec1 :: RBSet Int -> Bool
+prop_delete_spec1 t = all (\x -> not (member x (delete x t))) (elements t)
+
+prop_delete_spec2 :: RBSet Int -> Bool
+prop_delete_spec2 t = all (\(x,y) -> x == y || (member y (delete x t))) allpairs where
+   allpairs = [ (x,y) | x <- elements t, y <- elements t ]
+
+prop_delete_spec3 :: RBSet Int -> Int -> Property
+prop_delete_spec3 t x = not (x `elem` elements t) ==> (delete x t == t)
+
+prop_delete_bst :: RBSet Int -> Bool
+prop_delete_bst t = all (\x -> prop_BST (delete x t)) (elements t)
+
+prop_delete2 :: RBSet Int -> Bool
+prop_delete2 t = all (\x -> prop_Rb2 (delete x t)) (elements t)
+
+prop_delete3 :: RBSet Int -> Bool
+prop_delete3 t = all (\x -> prop_Rb3 (delete x t)) (elements t)
+
+prop_delete4 :: RBSet Int -> Bool
+prop_delete4 t = all (\x -> prop_Rb4 (delete x t)) (elements t)
+
+check_insert = do
+    putStrLn "BST property"
+    quickCheck prop_BST
+    putStrLn "Root is black"
+    quickCheck prop_Rb2
+    putStrLn "Black height the same"
+    quickCheck prop_Rb3
+    putStrLn "Red nodes have black children"
+    quickCheck prop_Rb4
+
+check_delete = do
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete_spec1
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete_spec2
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete_spec3
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete2
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete3
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete4
+   quickCheckWith (stdArgs {maxSuccess=100}) prop_delete_bst
+       
 
 main :: IO ()
 main = 
