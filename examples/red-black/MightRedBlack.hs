@@ -32,8 +32,17 @@ data RBSet a =
 redden :: RBSet a -> RBSet a
 redden (T _ a x b) = T R a x b
 
+-- blacken for insert
+-- never a leaf, could be red or black
+blacken' :: RBSet a -> RBSet a
+blacken' (T R a x b) = T B a x b
+blacken' (T B a x b) = T B a x b
+
+-- blacken for delete
+-- root is never red, could be double black
 blacken :: RBSet a -> RBSet a
-blacken (T _ a x b) = T B a x b
+blacken (T B a x b) = T B a x b
+blacken (T BB a x b) = T B a x b
 blacken E = E
 blacken EE = E
 
@@ -107,7 +116,7 @@ member x (T _ l y r) | x < y     = member x l
 
 
 insert :: (Ord a) => a -> RBSet a -> RBSet a                    
-insert x s = blacken (ins s) 
+insert x s = blacken' (ins s) 
  where ins E = T R E x E
        ins s@(T color a y b) | x < y     = balance color (ins a) y b
                              | x > y     = balance color a y (ins b)
@@ -127,13 +136,13 @@ remove (T R E _ E) = E
 remove (T B E _ E) = EE
 -- ; Killing a node with one child;
 -- ; parent or child is red:
-remove (T R E _ child) = child
-remove (T R child _ E) = child
+-- remove (T R E _ child) = child
+-- remove (T R child _ E) = child
 remove (T B E _ (T R a x b)) = T B a x b
 remove (T B (T R a x b) _ E) = T B a x b
 -- ; Killing a black node with one black child:
-remove (T B E _ child@(T B _ _ _)) = blacker' child
-remove (T B child@(T B _ _ _) _ E) = blacker' child
+-- remove (T B E _ child@(T B _ _ _)) = blacker' child
+-- remove (T B child@(T B _ _ _) _ E) = blacker' child
 -- ; Killing a node with two sub-trees:
 remove (T color l y r) = bubble color l' mx r 
  where mx = max l
@@ -152,6 +161,9 @@ del x s@(T color a' y b') | x < y   = bubble color (del x a') y b'
                         | x > y     = bubble color a' y (del x b')
                         | otherwise = remove s
 
+prop_del :: Int -> RBSet Int -> Bool
+prop_del x s = color (del x s) `elem` [B, BB]
+
 
 --- Testing code
        
@@ -169,7 +181,7 @@ prop_BST t = isSortedNoDups (elements t)
 color :: RBSet a -> Color
 color (T c _ _ _) = c
 color E = B
-
+color EE = BB
 
 prop_Rb2 :: RBSet Int -> Bool
 prop_Rb2 t = color t == B

@@ -29,7 +29,7 @@ _ %==% _ = False
 data Nat = Z | S Nat
 
 data CT (n :: Nat) (c :: Color) (a :: *) where
-   E  :: CT n Black a
+   E  :: CT Z Black a
    T  :: Valid c c1 c2 => 
          SColor c -> (CT n c1 a) -> a -> (CT n c2 a) -> CT (Incr c n) c a
 
@@ -125,7 +125,8 @@ balanceR c a x (IN R b@E z d@E) = IN c a x (T R b z d)
 delete :: (Ord a) => a -> RBSet a -> RBSet a
 delete x (Root s) = blacken (del x s) 
  where blacken :: DT n a -> RBSet a
-       blacken (DT _ a x b) = undefined -- Root (T B a x b)
+       blacken (DT B a x b) = undefined -- Root (T B a x b)
+       blacken (DT BB a x b) = undefined -- Root (T B a x b)
        blacken DE  = Root E
        blacken DEE = Root E
        
@@ -140,14 +141,53 @@ data DT n a where
   DE  :: DT Z a
   DEE :: DT (S Z) a
   
-remove :: CT n c a -> DT n a   
-remove = undefined
 
-bubbleL :: SColor c -> DT n a -> a -> CT n c1 a -> DT n a
-bubbleL = undefined
+max :: CT n c a -> a
+max E = error "no largest element"
+max (T _ _ x E) = x
+max (T _ _ x r) = max r
 
-bubbleR :: SColor c -> CT n c1 a -> a -> DT n a -> DT n a 
+-- Remove this node: it might leave behind a double black node
+remove :: CT n c a -> DT n a
+remove (T R E _ E) = DE
+remove (T B E _ E) = DEE 
+-- remove (T R E _ child) = child  -- impossible
+-- remove (T R child _ E) = child  -- impossible
+remove (T B E _ (T R a x b)) = DT B a x b
+remove (T B (T R a x b) _ E) = DT B a x b
+-- remove (T B E _ child@(T B _ _ _)) = blacker' child -- also impossible
+-- remove (T B child@(T B _ _ _) _ E) = blacker' child -- also impossible
+remove (T color l y r) = bubbleL color (removeMax l) (max l) r 
+
+removeMax :: CT n c a -> DT n a
+removeMax E = error "no maximum to remove"
+removeMax s@(T _ _ _ E) = remove s
+removeMax s@(T color l x r) = bubbleR color l x (removeMax r)
+
+
+bubbleL :: SColor c -> DT n a -> a -> CT n c1 a -> DT (Incr c n) a
+bubbleL color DEE x r             = 
+  dbalanceL (blacker color) DE x (redder' r) 
+bubbleL color l@(DT BB a y b) x r =  
+  dbalanceL (blacker color) (DT B a y b) x (redder' r)
+-- bubbleL color l x r = balanceL color l x r
+
+redder' :: CT (S n) c1 a -> CT n (Redder c1) a
+redder' = undefined                        
+
+dbalanceL :: SColor c -> DT n a -> a -> CT n c1 a -> DT (Incr c n) a
+           
+bubbleR :: SColor c -> CT n c1 a -> a -> DT n a -> DT (Incr c n) a 
 bubbleR = undefined
+
+{-
+bubble :: SColor c -> CT n c a -> a -> CT n c a -> CT n c a
+bubble color l x r
+ | isBB(l) || isBB(r) = balance (blacker color) (redder' l) x (redder' r)
+ | otherwise          = balance color l x r
+-}
+
+
 
 type family Blacker (c :: Color) :: Color
 type instance Blacker NegativeBlack = Red
@@ -221,34 +261,7 @@ balance color a x b = T color a x b
 
 {-
  -- `bubble` "bubbles" double-blackness upward toward the root:
-bubble :: SColor c -> CT n c a -> a -> CT n c a -> CT n c a
-bubble color l x r
- | isBB(l) || isBB(r) = balance (blacker color) (redder' l) x (redder' r)
- | otherwise          = balance color l x r
 
-max :: CT n c a -> a
-max E = error "no largest element"
-max (T _ _ x E) = x
-max (T _ _ x r) = max r
-
--- Remove this node: it might leave behind a double black node
-remove :: CT n c a -> CT n c a
-remove (T R E _ E) = E
-remove (T B E _ E) = EE
-remove (T R E _ child) = child
-remove (T R child _ E) = child
-remove (T B E _ (T R a x b)) = T B a x b
-remove (T B (T R a x b) _ E) = T B a x b
-remove (T B E _ child@(T B _ _ _)) = blacker' child
-remove (T B child@(T B _ _ _) _ E) = blacker' child
-remove (T color l y r) = bubble color l' mx r 
- where mx = max l
-       l' = removeMax l
-
-removeMax :: CT n c a -> CT n c a
-removeMax E = error "no maximum to remove"
-removeMax s@(T _ _ _ E) = remove s
-removeMax s@(T color l x r) = bubble color l x (removeMax r)
 
 
 -}

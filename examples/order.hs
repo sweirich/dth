@@ -119,7 +119,7 @@ insert3 y (Node3 lt p rt) = case sLep y p of
 $(singletons [d|
               
     -- extending types with top and bottom elements
-    -- Actual is # in the Agda version              
+    -- Actual is written `#` in the Agda version              
     data TB p = Top | Actual p | Bot deriving (Eq)
                                                                       
   |])
