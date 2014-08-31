@@ -23,34 +23,33 @@ An attempt to port this code to use the singletons library instead of MPTC+FD
 >        deriving (Eq, Show)
 
 >     -- Rotate a cube 90 degrees over its Z-axis, leaving up and down in place.
->     -- Singletons note: these type signatures are required
->     rot :: Cube -> Cube
+>     -- rot :: Cube -> Cube
 >     rot (Cube u f r b l d) = Cube u r b l f d
 > 
 >
 >     -- Twist a cube around the axis running from the upper-front-right 
 >     -- corner to the back-left-down corner.
->     twist :: Cube -> Cube
+>     -- twist :: Cube -> Cube
 >     twist (Cube u f r b l d) = Cube f r u l d b 
 >
 >     -- Exchange up and down, front and left, back and right.
->     cubeflip :: Cube -> Cube
+>     -- cubeflip :: Cube -> Cube
 >     cubeflip (Cube u f r b l d) = Cube d l b r f u
 
 >     -- Singletons note: this must be polymorphic?!?
->     bind :: [ a ] -> ( a -> [ b ] ) -> [ b ]
+>     -- bind :: [ a ] -> ( a -> [ b ] ) -> [ b ]
 >     bind l f = concatMap f l
 
 >     -- Compute all 24 ways to orient a cube.
 >     -- Singletons note: monads not supported, so have to rewrite list comprehension
 >     -- at the type level in terms of list's bind and return
->     orientations :: Cube -> [ Cube ]
+>     -- orientations :: Cube -> [ Cube ]
 >     orientations c = bind  [c, rot c, rot (rot c), rot (rot (rot c))] $ \c' -> 
 >                      bind  [c', twist c', twist (twist c')] $ \c'' -> 
 >                      bind  [c'', cubeflip c''] $ \c''' -> [ c''']
 
 >     -- Compute which faces of a cube are visible when placed in a pile.
->     visible :: Cube -> [ Color ]
+>     -- visible :: Cube -> [ Color ]
 >     visible (Cube u f r b l d) = [f, r, b, l]
 
 >     -- Two cubes are compatible if they have different colours on every
@@ -61,17 +60,17 @@ An attempt to port this code to use the singletons library instead of MPTC+FD
 >     -- however, we need to define compat as a separate function so that 
 >     -- we can add the type signature
 >     compat :: (Color,Color) -> [Bool]
->     compat (x,x') = [x /= x']
+>     compat (x,x') = [not (x == x')]
 > 
->     compatible :: Cube -> Cube -> Bool
+>     -- compatible :: Cube -> Cube -> Bool
 >     compatible c c' = and (bind (zip (visible c) (visible c')) compat)
                         
 >     -- Determine whether a cube can be added to pile of cubes, without
 >     -- invalidating the solution.
->     allowed :: Cube -> [ Cube ] -> Bool
+>     -- allowed :: Cube -> [ Cube ] -> Bool
 >     allowed c cs = and (bind cs (\c' -> [compatible c c']))
 
->     cubes :: [ Cube ]
+>     -- cubes :: [ Cube ]
 >     cubes = [ Cube B G W G B R,  
 >               Cube W G B W R R, 
 >               Cube G W R B R R, 
@@ -80,20 +79,20 @@ An attempt to port this code to use the singletons library instead of MPTC+FD
 >     -- Return a list of all ways of orienting each cube such that no side of
 >     --  the pile has two faces the same.
 >  
->     solutions :: [Cube] -> [[Cube]]
+>     -- solutions :: [Cube] -> [[Cube]]
 >     solutions [] = [[]]
 >     solutions (c : cs) = bind (solutions cs) $ \cs' ->
 >                          bind (orientations c) $ \c' -> 
 >                          if allowed c' cs' then [c' : cs'] else []
 
->     cubeBlue :: Cube
+>     -- cubeBlue :: Cube
 >     cubeBlue = Cube B B B B B B 
 
->     test1 :: [[Cube]]
+>     -- test1 :: [[Cube]]
 >     test1 = solutions [cubeBlue, cubeBlue]
 
->     test :: [[Cube]]
->     test  = solutions cubes
+>     -- test :: [[Cube]]
+>     -- test  = solutions cubes
 
 >          |])
 

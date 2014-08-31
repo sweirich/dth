@@ -137,11 +137,16 @@ data AlmostTree n a where
 -- `balance` rotates away coloring conflicts
 -- we separate it into two cases based on whether the infraction could
 -- be on the left or the right
+
    
 balanceL :: Sing c -> AlmostTree n a -> a -> Tree n c1 a -> AlmostTree (Incr c n) a
 balanceL SB (AT SR (T SR a x b) y c) z d = AT SR (T SB a x b) y (T SB c z d)
 balanceL SB (AT SR a x (T SR b y c)) z d = AT SR (T SB a x b) y (T SB c z d)
-balanceL c (AT SB a x b) z d           = AT c (T SB a x b) z d
+balanceL c (AT SB a x b) z d             = AT c (T SB a x b) z d
+-- Note that the following two cases are exhaustive.  We know that there 
+-- will be at most 2 reds in a row. So if c is R then the two subtrees must
+-- both be black. (The AlmostTree type isn't precise enough to guarantee 
+-- this.)
 balanceL c (AT SR a@(T SB _ _ _) x b@(T SB _ _ _)) z d = AT c (T SR a x b) z d
 balanceL c (AT SR a@E x b@E) z d       = AT c (T SR a x b) z d
    

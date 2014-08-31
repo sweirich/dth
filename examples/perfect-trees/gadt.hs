@@ -33,7 +33,7 @@ three = Tree three'
 
 decr :: Tree a -> Tree a 
 decr (Tree (Node (Node ll xl lr) xc (Node rl xr rr))) = 
-  Tree (Node ll xc rr)x
+  Tree (Node ll xc rr)
 
 next :: Tree Int -> Tree Int
 next (Tree t) = Tree (Node t 0 t)
@@ -52,3 +52,6 @@ sameHeight Leaf Leaf = Just Refl
 sameHeight (Node l1 _ _) (Node l2 _ _) = case sameHeight l1 l2 of
   Just Refl -> Just Refl
 sameHeight _ _ = Nothing
+
+
+-- validate :: 

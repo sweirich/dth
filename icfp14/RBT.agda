@@ -6,10 +6,6 @@ open import Data.Sum
 
 module RBT (A : Set) (compare : A -> A -> Ordering) where 
 
-    data Either (A B : Set) : Set where
-      Left  : A -> Either A B
-      Right : B -> Either A B
-
     data Nat : Set where
       Zero : Nat
       Suc  : Nat -> Nat
@@ -50,9 +46,10 @@ module RBT (A : Set) (compare : A -> A -> Ordering) where
     incr-if-black R x = x
     incr-if-black B x = Suc x
 
-    -- hide the color of a well-formed tree
+    -- hide the color of a well-formed, non-empty tree
     data HTree : Nat -> Set where
-       HideColor : {c : Color}{m : Nat} -> Tree c m -> HTree m
+       HR : {m : Nat} -> Tree R m -> HTree m
+       HB : {m : Nat} -> Tree B (Suc m) -> HTree (Suc m)
     
     -- captures the height, but not the fact that red nodes have black children
     data AlmostTree : Nat → Set where
@@ -62,68 +59,70 @@ module RBT (A : Set) (compare : A -> A -> Ordering) where
               → Tree c1 n → A → Tree c2 n
               → AlmostTree (incr-if-black c n)
 
-    balance-break : ∀ {n} -> HTree n -> A -> HTree n -> AlmostTree n
-    balance-break (HideColor l) x (HideColor r) = AT R l x r
+    -- input color is implicitly red
+    balance-left-red : ∀ {n c} -> HTree n -> A -> Tree c n -> AlmostTree n
+    balance-left-red (HR l) x r = AT R l x r
+    balance-left-red (HB l) x r = AT R l x r
+
+    -- note: we cannot give balance-left-red this type
+    -- as it is not strong enough to show totality. The types allow the 
+    -- left subtree to be red, with a red child. 
+    -- There is no way to recover from that situation.
+    -- balance-left-red : ∀ {n c} -> AlmostTree n -> A -> Tree c n -> AlmostTree n
+
+    balance-right-red : ∀ {n c} -> Tree c n -> A -> HTree n -> AlmostTree n
+    balance-right-red l x (HR r) = AT R l x r
+    balance-right-red l x (HB r) = AT R l x r
+
 
     -- input color is implicitly black 
-    balance-left : ∀ {n c} → AlmostTree n → A → Tree c n → HTree (Suc n)
+    balance-left-black : ∀ {n c} → AlmostTree n → A → Tree c n → HTree (Suc n)
 
     -- these are the two rotation cases
-    balance-left (AT R (TR a x b) y c) z d = HideColor (TR (TB a x b) y (TB c z d))
-    balance-left (AT R a x (TR b y c)) z d = HideColor (TR (TB a x b) y (TB c z d))
+    balance-left-black (AT R (TR a x b) y c) z d = HR (TR (TB a x b) y (TB c z d))
+    balance-left-black (AT R a x (TR b y c)) z d = HR (TR (TB a x b) y (TB c z d))
     -- need to expand the catch-all, because the *proof* is different in each case.  
-    balance-left AE x r = HideColor (TB E x r)
-    balance-left (AT B a  x b) y r = HideColor (TB (TB a x b) y r)
-    balance-left (AT R E x E) y r = HideColor (TB (TR E x E) y r)
-    balance-left (AT R (TB a1 x1 a2) x (TB b1 y1 b2)) y c = HideColor (TB (TR (TB a1 x1 a2) x (TB b1 y1 b2)) y c)
+    balance-left-black AE x r = HB (TB E x r)
+    balance-left-black (AT B a  x b) y r = HB (TB (TB a x b) y r)
+    balance-left-black (AT R E x E) y r = HB (TB (TR E x E) y r)
+    balance-left-black (AT R (TB a1 x1 a2) x (TB b1 y1 b2)) y c = HB (TB (TR (TB a1 x1 a2) x (TB b1 y1 b2)) y c)
 
     -- input color is implicitly black 
-    balance-right : ∀ {n c} → Tree c n → A → AlmostTree n → HTree (Suc n)
+    balance-right-black : ∀ {n c} → Tree c n → A → AlmostTree n → HTree (Suc n)
     -- these are the two rotation cases
-    balance-right a x (AT R (TR b y c)  z d) = HideColor (TR (TB a x b) y (TB c z d))
-    balance-right a x (AT R b y (TR c z d)) = HideColor (TR (TB a x b) y (TB c z d))
+    balance-right-black a x (AT R (TR b y c)  z d) = HR (TR (TB a x b) y (TB c z d))
+    balance-right-black a x (AT R b y (TR c z d)) = HR (TR (TB a x b) y (TB c z d))
     -- catch-all 
-    balance-right a x AE = HideColor (TB a x E)
-    balance-right a x (AT R E y E) = HideColor (TB a x (TR E y E))
-    balance-right a x (AT R (TB l y r) x' (TB l' y' r')) = 
-           HideColor (TB a x (TR (TB l y r) x' (TB l' y' r')))
-    balance-right a x (AT B l y r) = HideColor (TB a x (TB l y r))
+    balance-right-black a x AE = HB (TB a x E)
+    balance-right-black a x (AT R E y E) = HB (TB a x (TR E y E))
+    balance-right-black a x (AT R (TB l y r) x' (TB l' y' r')) = 
+           HB (TB a x (TR (TB l y r) x' (TB l' y' r')))
+    balance-right-black a x (AT B l y r) = HB (TB a x (TB l y r))
 
     -- forget that the top node of the tree is well-formed
     forget : ∀ {n} → HTree n -> AlmostTree n
-    forget (HideColor E) = AE 
-    forget (HideColor (TR l x r)) = AT R l x r
-    forget (HideColor (TB l x r))   = AT B l x r
-
-    -- determine the color of the tree
-    decide-root : ∀ {n c} (t : Tree c n) → Either (Tree B n) (Tree R n)
-    decide-root E = Left E
-    decide-root (TR a x b) = Right (TR a x b)
-    decide-root (TB a x b) = Left (TB a x b)
+    forget (HR (TR l x r)) = AT R l x r
+    forget (HB (TB l x r)) = AT B l x r
 
     mutual
-      ins-red : ∀ {n} (t : Tree R n) (x : A) → AlmostTree n
-      ins-red (TR l y r) x with compare x y
-      ... | LT = balance-break (ins-black l x) y (HideColor r)
-      ... | GT = balance-break (HideColor l) y (ins-black r x)
-      ... | EQ = (AT R l x r)
-
       ins-black : ∀ {n} (t : Tree B n) (x : A) → HTree n
-      ins-black E x = HideColor (TR E x E)
+      ins-black E x = HR (TR E x E)
       ins-black (TB l y r) x with compare x y
-      ... | LT  = balance-left (ins-any l x) y r
-      ... | GT  = balance-right l x (ins-any r x)
-      ... | EQ  = HideColor (TB l x r)
+      ... | LT  = balance-left-black (ins-any l x) y r
+      ... | GT  = balance-right-black l x (ins-any r x)
+      ... | EQ  = HB (TB l x r)
 
       ins-any : ∀ {n c} (t : Tree c n) (x : A) -> AlmostTree n
-      ins-any t x with decide-root t 
-      ... | Left rt = forget (ins-black rt x )
-      ... | Right rt = ins-red rt x
+      ins-any (TR l y r) x with compare x y 
+      ... | LT = balance-left-red (ins-black l x) y r
+      ... | GT = balance-right-red l y (ins-black r x)
+      ... | EQ = AT R l x r
+      ins-any (TB l y r) x = forget (ins-black (TB l y r) x)
+      ins-any E x          = forget (ins-black E x)
 
     blacken-root : ∀ {n} → HTree n → RBT
-    blacken-root (HideColor E)          = Root E
-    blacken-root (HideColor (TR l x r)) = Root (TB l x r)
-    blacken-root (HideColor (TB l x r)) = Root (TB l x r)
+    blacken-root (HR (TR l x r)) = Root (TB l x r)
+    blacken-root (HB (TB l x r)) = Root (TB l x r)
 
     insert : RBT → A → RBT
     insert (Root t) x = blacken-root (ins-black t x)

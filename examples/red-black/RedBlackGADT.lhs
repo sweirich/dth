@@ -5,7 +5,8 @@ This version of RedBlack trees demonstrates the use of GADTs to statically
 verify all four RedBlack tree invariants. It is a modification of the 
 RedBlack module (minus deletion).
 
-> {-# LANGUAGE InstanceSigs,GADTs, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies #-}
+> {-# LANGUAGE InstanceSigs,GADTs, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies, RankNTypes, ScopedTypeVariables #-}
+> {-# OPTIONS -fwarn-incomplete-patterns #-} 
 
 > module RedBlackGADT where
 
@@ -42,7 +43,7 @@ A colored tree, where the index c indicates the color of the top node of the
 tree, and n indicates the black height of the tree.
 
 > data CT (n :: Nat) (c :: Color) (a :: *) where
->    E  :: CT Z Black a
+>    E  :: CT (S Z) Black a
 >    N  :: Valid c c1 c2 => SColor c -> (CT n c1 a) -> a -> (CT n c2 a) 
 >       -> CT (Incr c n) c a
 
@@ -209,6 +210,7 @@ the tree to make sure that invariant (2) is always satisfied.
 > blacken :: IR n a -> RBT a
 > blacken (IN _ l v r) = Root (N B l v r)
 
+
 Note that the types describe what happens with insertion now. After insertion
 into a tree of type `CT n c a`, we don't know what color of tree will be
 produced. Furthermore, this tree might not satisfy condition number #4, it is
@@ -218,7 +220,7 @@ an auxiliary type that tracks the black height, but hides the top color.
 
 > data IR n a where
 >   IN :: SColor c -> CT n c1 a -> a -> CT n c2 a -> IR (Incr c n) a
-
+  
 > ins :: Ord a => a -> CT n c a -> IR n a
 > ins x E = IN R E x E
 > ins x s@(N c a y b)
@@ -271,7 +273,7 @@ produces a result of type `IR` not `CT`. Now we have two balance functions,
 one for rebalancing after an insertion in the left subtree and one for
 rebalancing after an insertion in the right subtree.
 
-> balanceL :: SColor c -> IR n a -> a -> CT n c1 a -> IR (Incr c n) a
+> balanceL :: forall c n a c1. SColor c -> IR n a -> a -> CT n c1 a -> IR (Incr c n) a
 > balanceL B (IN R (N R a x b) y c) z d = IN R (N B a x b) y (N B c z d)
 > balanceL B (IN R a x (N R b y c)) z d = IN R (N B a x b) y (N B c z d)
 
@@ -281,15 +283,19 @@ know the ordering of pattern matching. So we have to match the cases for
 already balanced trees individually so that all calls to `N` will satisfy
 their requirements.
 
-> balanceL col (IN B a x b) z d        = IN col (N B a x b) z d
+> balanceL col (IN B a x b) z d                         = IN col (N B a x b) z d
 > balanceL col (IN R a@(N B _ _ _) x b@(N B _ _ _)) z d = IN col (N R a x b) z d
 > balanceL col (IN R a@E x b@E) z d                     = IN col (N R a x b) z d
 
 Note that we don't need these two cases, they don't have the same black height
 on each side.
 
-> -- balanceL col (IN R a@E x b@(N B _ _ _)) z d  = IN col (N R a x b) z d
+> -- balanceL col (IN R a@E x b@(N B a1 x1 b1)) z d  = IN col (N R E x (N B a1 x1 b1)) z d where
+> --   t :: CT (S Z) Red a
+> --   t = N R E x (N B a1 x1 b1)
 > -- balanceL col (IN R a@(N B _ _ _) x b@E) z d  = IN col (N R a x b) z d
+
+> -- 
 
 The balanceR function is similar.
 
@@ -302,7 +308,111 @@ The balanceR function is similar.
 > --balanceR c a x (IN R b@(N B _ _ _) z d@E) = IN c a x (N R b z d)
 > balanceR c a x (IN R b@E z d@E) = IN c a x (N R b z d)
 
+> {-
 
+-- the result of a deletion
+-- note that we don't advance the black height at the top level, even 
+-- though it could be black
+
+> data DT n a where
+>    DE :: DT (S Z) a
+>    DN :: SColor c -> CT n c1 a -> a -> CT n c2 a -> DT n a
+
+
+> delete :: Ord a => a -> RBT a -> RBT a
+> delete x (Root t) = blacken (del x t) where
+
+>       blacken :: DT n a -> RBT a  
+>       blacken (DN _ l x r) = Root (N B l x r)
+>       blacken DE = Root E
+
+
+>       del :: a -> CT n c a -> DT n a
+> {-    del x E = DE                 
+> 	del x (N _ a y b)
+> 	    | x < y     = delLeft  a y b
+> 	    | x > y     = delRight a y b
+>           | otherwise = merge a b
+> -}
+
+
+> delB :: Ord a => a -> CT (S n) Black a -> DT n a 
+> delB = undefined
+
+> delR :: Ord a => a -> 
+
+Delete from the left subtree. If the left subtree is a black node, we need to
+rebalance because its black height has changed.
+
+>       delLeft :: CT n c1 a -> a -> CT n c2 a -> DT n a
+>       delLeft = undefined
+> --      delLeft a@(N B _ _ _) y b = balLeft (del a) y b
+> --      delLeft a@(N R _ _ _) y b = DN R (del a) y b
+
+Rebalancing function after a left deletion from a black-rooted tree. We know
+that the black height of the left subtree is one less than the black height of
+the right tree. We want to return a new, balanced (though potentially
+infrared) tree.
+
+>       balLeft :: DT n a -> a -> CT (S n) c2 a -> DT (S n) a
+>       balLeft (DN R a x b) y c            = DN R (N B a x b) y c
+> --      balLeft bl x (N B a y b)           = balanceL B bl x (N R a y b)
+> --      balLeft bl x (N R (N B a y b) z c) = N R (N B bl x a) y 
+> --                                              (balanceR B b z (sub1 c))
+
+Helper function to reduce the black height of a tree by one by reddening the
+node. Should only be called on black nodes. We know that `c` above is a black node because 
+* it is the child of a red node
+* `c` must have the same black height as `(N B a y b)` so it can't be `E`
+
+> 
+>       sub1 :: CT (S n) Black a -> DT n a
+>       sub1 (N B a x b) = DN R a x b
+>       sub1 _ = error "invariance violation"
+
+
+Deletion from the right subtree. Symmetric to the above code.
+
+>       delRight :: CT n c1 a -> a -> CT n c2 a -> DT n a
+>       delRight = undefined
+>  {-
+>       delRight a y b@(N B _ _ _) = balRight a y (del b)
+>       delRight a y b             = N R a y (del b) 
+
+>       balRight :: RBT a -> a -> RBT a -> RBT a
+>       balRight a x (N R b y c)            = N R a x (N B b y c)
+>       balRight (N B a x b) y bl           = balance (N B (N R a x b) y bl)
+>       balRight (N R a x (N B b y c)) z bl = N R (balance (N B (sub1 a) x b)) y (N B c z bl)
+> -}
+
+
+Glue two red black trees together into a single tree (after having deleted the
+element in the middle). If one subtree is red and the other black, we can call
+merge recursively, pushing the red node up. Otherwise, if both subtrees are
+black or both red, we can merge the inner pair of subtrees together. If that
+result is red, then we can promote it's value up. Otherwise, we may need to
+rebalance.
+
+>       merge :: CT n c1 a -> CT n c2 a -> DT n a
+>       merge E E = DE
+>       merge E n@(N R E x E) = DN R E x E
+>       merge n@(N R E x E) E = DN R E x E
+>       merge (N R a x b) (N R c y d) =
+> 	  case merge b c of
+>           DN R b' z c'      -> DN R (N R a x b') z (N R c' y d)
+> 	    bc@(DN B b' z c') -> DN R a x (N R (N B b' z c') y d)
+> 	    bc@DE -> DN R a x (N R E y d)
+>       merge (N B a x b) (N B c y d) = 
+> 	  case merge b c of
+> 	    DN R b' z c' -> DN R (N B a x b') z (N B c' y d)
+> 	    bc@(DN B b' z c') -> undefined -- balLeft a x (N B (N B b' z c') y d)
+> 	    bc@DE -> undefined -- balLeft a x (N B E y d)
+>      -- merge a@(N B _ _ _)  (N R b x c) = DN R (merge a b) x c
+>      -- merge (N R a x b) c@(N B _ _ _)  = DN R a x (merge b c)
+
+
+
+> -}
 
 
 
