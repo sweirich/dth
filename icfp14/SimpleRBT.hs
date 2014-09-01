@@ -4,7 +4,7 @@
 -- invariants. For ICFP 2014.
 -- Stephanie Weirich
 
-module SimpleGADT where
+module SimpleRBT where
 
 import Prelude hiding (max)
 import Test.QuickCheck hiding (elements)
@@ -48,8 +48,8 @@ type instance Incr R   n           = n
 -- the top level type of red-black trees
 -- the data constructor forces the root to be black and 
 -- hides the black height.
-data RBSet a where
-  Root :: (Tree n B a) -> RBSet a
+data RBT a where
+  Root :: (Tree n B a) -> RBT a
 
 -- We can't automatically derive show and equality
 -- methods for GADTs.  
@@ -62,7 +62,7 @@ instance Show a => Show (Tree n c a) where
   show (T c l x r) = 
     "(T " ++ show c ++ " " ++ show l ++ " " 
           ++ show x ++ " " ++ show r ++ ")"
-instance Show a => Show (RBSet a) where
+instance Show a => Show (RBT a) where
   show (Root x) = show x
 
 
@@ -90,16 +90,16 @@ T c1 a1 x1 b1 %==% T c2 a2 x2 b2 =
   isJust (testEquality c1 c2) && a1 %==% a2 && x1 == x2 && b1 %==% b2
 _ %==% _ = False
   
-instance Eq a => Eq (RBSet a) where
+instance Eq a => Eq (RBT a) where
   (Root t1) == (Root t2) = t1 %==% t2
 
 
  -- Public operations --
 
-empty :: RBSet a
+empty :: RBT a
 empty = Root E
 
-member :: (Ord a) => a -> RBSet a -> Bool
+member :: (Ord a) => a -> RBT a -> Bool
 member x (Root t) = aux x t where
   aux :: Ord a => a -> Tree n c a -> Bool
   aux x E = False
@@ -107,7 +107,7 @@ member x (Root t) = aux x t where
                     | x > y     = aux x r
                     | otherwise = True
 
-elements :: Ord a => RBSet a -> [a]
+elements :: Ord a => RBT a -> [a]
 elements (Root t) = aux t [] where
       aux :: Ord a => Tree n c a -> [a] -> [a]
       aux E acc = acc
@@ -115,7 +115,7 @@ elements (Root t) = aux t [] where
 
  -- INSERTION --
 
-insert :: (Ord a) => a -> RBSet a -> RBSet a                    
+insert :: (Ord a) => a -> RBT a -> RBT a                    
 insert x (Root s) = blacken (ins x s) 
  where ins :: Ord a => a -> Tree n c a -> AlmostTree n a
        ins x E = AT SR E x E
@@ -124,7 +124,7 @@ insert x (Root s) = blacken (ins x s)
                                | otherwise = (AT color a y b)
 
 
-       blacken :: AlmostTree n a -> RBSet a
+       blacken :: AlmostTree n a -> RBT a
        blacken (AT _ a x b) = Root (T SB a x b)
 
 -- an intermediate data structure that temporarily violates the 
@@ -160,13 +160,13 @@ balanceR c a x (AT SR b@E z d@E)       = AT c a x (T SR b z d)
                                                         
 
 -- testing code to ensure that we didn't miss any cases
-instance (Ord a, Arbitrary a) => Arbitrary (RBSet a)  where
+instance (Ord a, Arbitrary a) => Arbitrary (RBT a)  where
   arbitrary = liftM (foldr insert empty) arbitrary
        
 isSortedNoDups :: Ord a => [a] -> Bool  
 isSortedNoDups x = nub (sort x) == x              
 
-prop_BST :: RBSet Int -> Bool
+prop_BST :: RBT Int -> Bool
 prop_BST t = isSortedNoDups (elements t)
 
 check_insert = do

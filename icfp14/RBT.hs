@@ -3,9 +3,11 @@
 
 -- This module is a Haskell transliteration of RBT.agda
 
-{-# OPTIONS -fwarn-incomplete-patterns #-}
-{- Note that this code produces two warnings because GHC cannot tell that the 
-branches are inaccessible. (But adding the branches produces a type error!)
+{- 
+
+Note that adding -fwarn-incomplete-patterns to this code produces two warnings
+because GHC cannot tell that the branches are inaccessible. (But adding the
+branches produces a type error!)
 
 /Users/sweirich/vc/dth/icfp14/RBT.hs:62:1: Warning:
     Pattern match(es) are non-exhaustive
@@ -65,55 +67,54 @@ type family Incr (c :: Color) (x :: Nat) :: Nat where
     Incr R x = x
     Incr B x = S x
 
--- hide the color of the tree
+-- hide the color of a non-empty tree
 data HTree :: Nat -> * where
-  H :: Tree c n -> HTree n
+  HR :: Tree R n -> HTree n
+  HB :: Tree B (S n) -> HTree (S n)
 
 -- captures the height, but not the fact that red nodes have black children
 data AlmostTree :: Nat -> * where
-  AE :: AlmostTree Z
   AT :: Sing c -> (Tree c1 n) -> A -> (Tree c2 n) -> AlmostTree (Incr c n)
 
 -- input color is implicitly black 
 balanceLB ::  AlmostTree n -> A -> Tree c n -> HTree (S n)
 -- these are the two rotation cases
-balanceLB (AT SR (TR a x b) y c) z d = H (TR (TB a x b) y (TB c z d))
-balanceLB (AT SR a x (TR b y c)) z d = H (TR (TB a x b) y (TB c z d))
+balanceLB (AT SR (TR a x b) y c) z d = HR (TR (TB a x b) y (TB c z d))
+balanceLB (AT SR a x (TR b y c)) z d = HR (TR (TB a x b) y (TB c z d))
 -- need to expand the catch-all, because the *proof* is different in each case.  
-balanceLB AE kv r = H (TB E kv r)
-balanceLB (AT SB a  x b) kv r = H (TB (TB a x b) kv r)
-balanceLB (AT SR E x E) kv r = H (TB (TR E x E) kv r)
-balanceLB (AT SR (TB a1 x1 a2) x (TB b1 y1 b2)) y c = H (TB (TR (TB a1 x1 a2) x (TB b1 y1 b2)) y c)
+balanceLB (AT SB a  x b) kv r = HB (TB (TB a x b) kv r)
+balanceLB (AT SR E x E) kv r = HB (TB (TR E x E) kv r)
+balanceLB (AT SR (TB a1 x1 a2) x (TB b1 y1 b2)) y c = HB (TB (TR (TB a1 x1 a2) x (TB b1 y1 b2)) y c)
 
 -- input color is implicitly black 
 balanceRB :: Tree c n -> A -> AlmostTree n -> HTree (S n)
 -- these are the two rotation cases
-balanceRB a x (AT SR (TR b y c)  z d) = H (TR (TB a x b) y (TB c z d))
-balanceRB a x (AT SR b y (TR c z d)) = H (TR (TB a x b) y (TB c z d))
+balanceRB a x (AT SR (TR b y c)  z d) = HR (TR (TB a x b) y (TB c z d))
+balanceRB a x (AT SR b y (TR c z d)) = HR (TR (TB a x b) y (TB c z d))
 -- catch-all 
-balanceRB a x AE = H (TB a x E)
-balanceRB a x (AT SR E y E) = H (TB a x (TR E y E))
-balanceRB a x (AT SR (TB l x0 r) y (TB l' x1 r')) = H (TB a x (TR (TB l x0 r) y (TB l' x1 r')))
-balanceRB a x (AT SB l kv r) = H (TB a x (TB l kv r))
+balanceRB a x (AT SR E y E) = HB (TB a x (TR E y E))
+balanceRB a x (AT SR (TB l x0 r) y (TB l' x1 r')) = HB (TB a x (TR (TB l x0 r) y (TB l' x1 r')))
+balanceRB a x (AT SB l kv r) = HB (TB a x (TB l kv r))
 
 balanceLR :: HTree n -> A -> Tree c n -> AlmostTree n
-balanceLR (H l) x r = AT SR l x r
+balanceLR (HR l) x r = AT SR l x r
+balanceLR (HB l) x r = AT SR l x r
 
 balanceRR :: Tree c n -> A -> HTree n -> AlmostTree n
-balanceRR l x (H r) = AT SR l x r
+balanceRR l x (HR r) = AT SR l x r
+balanceRR l x (HB r) = AT SR l x r
 
 -- forget that the top node of the tree satisfies the color invariant
 forget :: HTree n -> AlmostTree n
-forget (H E) = AE 
-forget (H (TR l x r)) = AT SR l x r
-forget (H (TB l x r)) = AT SB l x r
+forget (HR (TR l x r)) = AT SR l x r
+forget (HB (TB l x r)) = AT SB l x r
 
 insBlack :: Tree B n -> A -> HTree n
-insBlack E x = H (TR E x E)
+insBlack E x = HR (TR E x E)
 insBlack (TB l y r) x = case (compare x y) of
     LT -> balanceLB (insAny l x) y r
     GT -> balanceRB l y (insAny r x)
-    EQ -> H (TB l y r)
+    EQ -> HB (TB l y r)
 
 insAny :: Tree c n -> A -> AlmostTree n
 insAny (TR l y r) x =  case compare x y of
@@ -124,7 +125,6 @@ insAny (TB l y r) x = forget (insBlack (TB l y r) x)
 insAny E          x = forget (insBlack E x)
 
 blacken :: AlmostTree n -> RBT
-blacken AE = Root E
 blacken (AT _ l x r) = (Root (TB l x r))
 
 insert :: RBT -> A -> RBT

@@ -51,9 +51,8 @@ module RBT (A : Set) (compare : A -> A -> Ordering) where
        HR : {m : Nat} -> Tree R m -> HTree m
        HB : {m : Nat} -> Tree B (Suc m) -> HTree (Suc m)
     
-    -- captures the height, but not the fact that red nodes have black children
+    -- captures the height, but not the fact that red nodes could have black children
     data AlmostTree : Nat → Set where
-      AE : AlmostTree Zero
       AT :  ∀ {n c1 c2}
               → (c : Color)
               → Tree c1 n → A → Tree c2 n
@@ -64,11 +63,11 @@ module RBT (A : Set) (compare : A -> A -> Ordering) where
     balance-left-red (HR l) x r = AT R l x r
     balance-left-red (HB l) x r = AT R l x r
 
-    -- note: we cannot give balance-left-red this type
-    -- as it is not strong enough to show totality. The types allow the 
+    -- note: we cannot give balance-left-red  th type
+    -- ∀ {n c} -> AlmostTree n -> A -> Tree c n -> AlmostTree n
+    -- as it is not strong enough to show totality. That type allows the 
     -- left subtree to be red, with a red child. 
     -- There is no way to recover from that situation.
-    -- balance-left-red : ∀ {n c} -> AlmostTree n -> A -> Tree c n -> AlmostTree n
 
     balance-right-red : ∀ {n c} -> Tree c n -> A -> HTree n -> AlmostTree n
     balance-right-red l x (HR r) = AT R l x r
@@ -81,8 +80,8 @@ module RBT (A : Set) (compare : A -> A -> Ordering) where
     -- these are the two rotation cases
     balance-left-black (AT R (TR a x b) y c) z d = HR (TR (TB a x b) y (TB c z d))
     balance-left-black (AT R a x (TR b y c)) z d = HR (TR (TB a x b) y (TB c z d))
-    -- need to expand the catch-all, because the *proof* is different in each case.  
-    balance-left-black AE x r = HB (TB E x r)
+    -- need to expand the catch-all, because the *proof* is different 
+    -- in each case.  
     balance-left-black (AT B a  x b) y r = HB (TB (TB a x b) y r)
     balance-left-black (AT R E x E) y r = HB (TB (TR E x E) y r)
     balance-left-black (AT R (TB a1 x1 a2) x (TB b1 y1 b2)) y c = HB (TB (TR (TB a1 x1 a2) x (TB b1 y1 b2)) y c)
@@ -93,7 +92,6 @@ module RBT (A : Set) (compare : A -> A -> Ordering) where
     balance-right-black a x (AT R (TR b y c)  z d) = HR (TR (TB a x b) y (TB c z d))
     balance-right-black a x (AT R b y (TR c z d)) = HR (TR (TB a x b) y (TB c z d))
     -- catch-all 
-    balance-right-black a x AE = HB (TB a x E)
     balance-right-black a x (AT R E y E) = HB (TB a x (TR E y E))
     balance-right-black a x (AT R (TB l y r) x' (TB l' y' r')) = 
            HB (TB a x (TR (TB l y r) x' (TB l' y' r')))
