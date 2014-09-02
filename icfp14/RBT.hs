@@ -3,6 +3,8 @@
 
 -- This module is a Haskell transliteration of RBT.agda
 
+-- 49 lines of code for insertion (counting type defs & signatures)
+
 {- 
 
 Note that adding -fwarn-incomplete-patterns to this code produces two warnings
@@ -68,16 +70,16 @@ type family Incr (c :: Color) (x :: Nat) :: Nat where
     Incr B x = S x
 
 -- hide the color of a non-empty tree
-data HTree :: Nat -> * where
-  HR :: Tree R n -> HTree n
-  HB :: Tree B (S n) -> HTree (S n)
+data HiddenTree :: Nat -> * where
+  HR :: Tree R n -> HiddenTree n
+  HB :: Tree B (S n) -> HiddenTree (S n)
 
 -- captures the height, but not the fact that red nodes have black children
 data AlmostTree :: Nat -> * where
   AT :: Sing c -> (Tree c1 n) -> A -> (Tree c2 n) -> AlmostTree (Incr c n)
 
 -- input color is implicitly black 
-balanceLB ::  AlmostTree n -> A -> Tree c n -> HTree (S n)
+balanceLB ::  AlmostTree n -> A -> Tree c n -> HiddenTree (S n)
 -- these are the two rotation cases
 balanceLB (AT SR (TR a x b) y c) z d = HR (TR (TB a x b) y (TB c z d))
 balanceLB (AT SR a x (TR b y c)) z d = HR (TR (TB a x b) y (TB c z d))
@@ -87,7 +89,7 @@ balanceLB (AT SR E x E) kv r = HB (TB (TR E x E) kv r)
 balanceLB (AT SR (TB a1 x1 a2) x (TB b1 y1 b2)) y c = HB (TB (TR (TB a1 x1 a2) x (TB b1 y1 b2)) y c)
 
 -- input color is implicitly black 
-balanceRB :: Tree c n -> A -> AlmostTree n -> HTree (S n)
+balanceRB :: Tree c n -> A -> AlmostTree n -> HiddenTree (S n)
 -- these are the two rotation cases
 balanceRB a x (AT SR (TR b y c)  z d) = HR (TR (TB a x b) y (TB c z d))
 balanceRB a x (AT SR b y (TR c z d)) = HR (TR (TB a x b) y (TB c z d))
@@ -96,20 +98,20 @@ balanceRB a x (AT SR E y E) = HB (TB a x (TR E y E))
 balanceRB a x (AT SR (TB l x0 r) y (TB l' x1 r')) = HB (TB a x (TR (TB l x0 r) y (TB l' x1 r')))
 balanceRB a x (AT SB l kv r) = HB (TB a x (TB l kv r))
 
-balanceLR :: HTree n -> A -> Tree c n -> AlmostTree n
+balanceLR :: HiddenTree n -> A -> Tree c n -> AlmostTree n
 balanceLR (HR l) x r = AT SR l x r
 balanceLR (HB l) x r = AT SR l x r
 
-balanceRR :: Tree c n -> A -> HTree n -> AlmostTree n
+balanceRR :: Tree c n -> A -> HiddenTree n -> AlmostTree n
 balanceRR l x (HR r) = AT SR l x r
 balanceRR l x (HB r) = AT SR l x r
 
 -- forget that the top node of the tree satisfies the color invariant
-forget :: HTree n -> AlmostTree n
+forget :: HiddenTree n -> AlmostTree n
 forget (HR (TR l x r)) = AT SR l x r
 forget (HB (TB l x r)) = AT SB l x r
 
-insBlack :: Tree B n -> A -> HTree n
+insBlack :: Tree B n -> A -> HiddenTreex n
 insBlack E x = HR (TR E x E)
 insBlack (TB l y r) x = case (compare x y) of
     LT -> balanceLB (insAny l x) y r
