@@ -111,7 +111,7 @@ forget :: HiddenTree n -> AlmostTree n
 forget (HR (TR l x r)) = AT SR l x r
 forget (HB (TB l x r)) = AT SB l x r
 
-insBlack :: Tree B n -> A -> HiddenTreex n
+insBlack :: Tree B n -> A -> HiddenTree n
 insBlack E x = HR (TR E x E)
 insBlack (TB l y r) x = case (compare x y) of
     LT -> balanceLB (insAny l x) y r

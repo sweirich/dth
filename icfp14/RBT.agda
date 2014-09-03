@@ -63,7 +63,7 @@ module RBT (A : Set) (compare : A → A → Ordering) where
     balance-left-red (HR l) x r = AT R l x r
     balance-left-red (HB l) x r = AT R l x r
 
-    -- note: we cannot give balance-left-red  th type
+    -- note: we cannot give balance-left-red the type
     -- ∀ {n c} → AlmostTree n → A → Tree c n → AlmostTree n
     -- as it is not strong enough to show totality. That type allows the 
     -- left subtree to be red, with a red child. 
