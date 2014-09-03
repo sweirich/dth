@@ -2,6 +2,9 @@
 
 -- investigating Conor's "How to keep your neighbors in order" in Haskell
 
+-- Depends on the hackage packages singletons and QuickCheck
+-- cabal install singletons QuickCheck
+
 module Order where
 
 import Data.Singletons.Prelude
@@ -545,4 +548,3 @@ instance Arbitrary P where
   
 instance (Ord a) => Arbitrary Tree23  where
   arbitrary = liftM (foldr insert empty) arbitrary
-  
