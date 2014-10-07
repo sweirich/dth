@@ -1,0 +1,48 @@
+name:               dep-typed-heaps-hs
+version:            1.0.0
+license:            BSD3
+license-file:       LICENSE
+author:             Jan Stolarek <jan.stolarek@p.lodz.pl>
+maintainer:         jan.stolarek@p.lodz.pl
+copyright:          (c) 2014 Jan Stolarek
+bug-reports:        https://github.com/jstolarek/dep-typed-heaps-hs/issues
+homepage:           https://github.com/jstolarek/dep-typed-heaps-hs
+synopsis:           Verified implementation of weight-biased leftist heaps
+description:        A verified Haskell implementation of weight-biased leftist
+                    heap (WBLH) data structure. Verification is based on my
+                    implementation done in Agda, which in turn is based on
+                    "Why Dependent Types Matter". Weight-biased leftist heap
+                    is described in Okasaki's "Purely Functional Data
+                    Structures".
+
+                    See <https://github.com/jstolarek/dep-typed-heaps>
+stability:          experimental
+category:           Types
+build-type:         Simple
+cabal-version:      >=1.8
+tested-with:        GHC>=7.6.3
+extra-source-files: README.md
+
+source-repository head
+   type:     git
+   location: git://github.com/jstolarek/dep-typed-heaps-hs.git
+
+library
+  hs-source-dirs:   src
+  exposed-modules:  Basics
+                    Basics.Bool
+                    Basics.Nat
+                    Basics.Ordering
+                    Basics.Reasoning
+                    Basics.Sing
+                    Basics.Unreachable
+                    SinglePassMerge.CombinedProofs
+                    SinglePassMerge.NoProofs
+                    SinglePassMerge.PriorityProof
+                    SinglePassMerge.RankProof
+                    TwoPassMerge.CombinedProofs
+                    TwoPassMerge.NoProofs
+                    TwoPassMerge.PriorityProof
+                    TwoPassMerge.RankProof
+  build-depends:    base
+  ghc-options:      -Wall
