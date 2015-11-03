@@ -1,4 +1,4 @@
-{-# LANGUAGE InstanceSigs,GADTs, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies #-}
+{-# LANGUAGE InstanceSigs,GADTs, DataKinds, PolyKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies, TypeOperators, ScopedTypeVariables #-}
 
 -- Implementation of deletion for red black trees by Matt Might
 -- Editing to preserve the red/black tree invariants by Stephanie Weirich, 
@@ -15,8 +15,9 @@ import Prelude hiding (max)
 import Test.QuickCheck hiding (elements)
 import Data.List(nub,sort)
 import Control.Monad(liftM)
-import Data.Type.Equality
 import Data.Maybe(isJust)
+
+--import Data.Type.Equality
 
 -- 
 data Color = Red | Black | DoubleBlack | NegativeBlack
@@ -84,16 +85,18 @@ showT (T c l x r) =
     "(T " ++ show c ++ " " ++ showT l ++ " " 
           ++ "..." ++ " " ++ showT r ++ ")"
 
+data ((a :: k) :~: (b :: k)) where
+  Refl :: a :~: a
 
 -- the test equality class gives us a proof that type level 
 -- colors are equal. 
--- testEquality :: SColor c1 -> SColor c2 -> Maybe (c1 ~ c2)
-instance TestEquality SColor where
-  testEquality R R   = Just Refl
-  testEquality B B   = Just Refl
-  testEquality BB BB = Just Refl
-  testEquality NB NB = Just Refl
-  testEquality _ _   = Nothing
+testEquality :: SColor c1 -> SColor c2 -> Maybe (c1 :~: c2)
+--instance TestEquality SColor where
+testEquality R R   = Just Refl
+testEquality B B   = Just Refl
+testEquality BB BB = Just Refl
+testEquality NB NB = Just Refl
+testEquality _ _   = Nothing
 
 -- comparing two Red/Black trees for equality. 
 -- unfortunately, because we have two instances, we can't
@@ -328,7 +331,9 @@ bubbleR color l x r = dbalanceR color l x r
 --- Testing code
 
 instance (Ord a, Arbitrary a) => Arbitrary (RBSet a)  where
-  arbitrary = liftM (foldr insert empty) arbitrary
+  arbitrary = g where
+    g :: forall a. (Ord a, Arbitrary a) => Gen (RBSet a)
+    g = liftM (foldr insert empty) (arbitrary :: Gen [a])
        
 prop_BST :: RBSet Int -> Bool
 prop_BST t = isSortedNoDups (elements t)

@@ -1,26 +1,11 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, ExistentialQuantification, 
     TypeFamilies, StandaloneDeriving #-}
 
+
 -- This module is a Haskell transliteration of RBT.agda
 
 -- 49 lines of code for insertion (counting type defs & signatures)
 
-{- 
-
-Note that adding -fwarn-incomplete-patterns to this code produces two warnings
-because GHC cannot tell that the branches are inaccessible. (But adding the
-branches produces a type error!)
-
-/Users/sweirich/vc/dth/icfp14/RBT.hs:62:1: Warning:
-    Pattern match(es) are non-exhaustive
-    In an equation for ‘balanceLB’:
-        Patterns not matched:
-            (AT SR E _ (TB _ _ _)) _ _
-            (AT SR (TB _ _ _) _ E) _ _
-
-and similar for balanceRB. 
-
--}
 
 module RBT where
     

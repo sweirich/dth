@@ -89,10 +89,10 @@ An attempt to port this code to use the singletons library instead of MPTC+FD
 >     cubeBlue = Cube B B B B B B 
 
 >     -- test1 :: [[Cube]]
->     test1 = solutions [cubeBlue, cubeBlue]
+>     -- test1 = solutions [cubeBlue, cubeBlue]
 
 >     -- test :: [[Cube]]
->     -- test  = solutions cubes
+>     test  = solutions cubes
 
 >          |])
 

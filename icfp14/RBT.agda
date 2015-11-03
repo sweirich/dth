@@ -1,5 +1,5 @@
 -- Original version by Dan Licata for OPLSS. 
--- Many modifications by Stephanie Weirich for ICFP 14 presentation.  
+-- Many modifications by Stephanie Weirich.  
 
 open import Ordering
 open import Data.Sum

@@ -1,7 +1,7 @@
 {-# LANGUAGE InstanceSigs,GADTs, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies #-}
 
 -- A version of Red-black trees that uses GADTs to ensure red-black tree
--- invariants. For ICFP 2014.
+-- invariants. 
 
 -- This version has separate data constructors for red and black internal 
 -- nodes (i.e. TR and TB)  It is also possible to combine them together
@@ -121,7 +121,7 @@ balanceL c (AT SB a x b) z d             = AT c (TB a x b) z d
 -- this.)
 balanceL c (AT SR a@(TB _ _ _) x b@(TB _ _ _)) z d = AT c (TR a x b) z d
 balanceL c (AT SR a@E x b@E) z d       = AT c (TR a x b) z d
-   
+
    
 balanceR :: Sing c -> Tree n c1 a -> a -> AlmostTree n a -> AlmostTree (Incr c n) a
 balanceR SB a x (AT SR (TR b y c) z d) = AT SR (TB a x b) y (TB c z d)
