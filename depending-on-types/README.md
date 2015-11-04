@@ -1,4 +1,4 @@
-Examples from "Depending on Types"
+Examples from ["Depending on Types"](depending-on-types.pptx)
 
 - [Okasaki.hs](Okasaki.hs)
    Chris Okasaki's 1993 functional pearl: insertion into red black trees
