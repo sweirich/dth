@@ -48,6 +48,8 @@ maxR :: Tree R n -> A
 maxR (TR _ x E)          = x
 maxR (TR _ _ (TB a x b)) = maxB (TB a x b)
 
+-- type definitions (w/o Show instances): 11 LOC
+
 -- singleton type
 data Sing (c :: Color) :: * where    
     SR :: Sing R
@@ -59,7 +61,8 @@ type family Incr (c :: Color) (x :: Nat) :: Nat where
     Incr R x = x
     Incr B x = S x
 
--- hide the color of a non-empty tree
+-- hide the color of a *non-empty* tree
+-- in Haskell, it also works to     
 data HiddenTree :: Nat -> * where
   HR :: Tree R n     -> HiddenTree n
   HB :: Tree B (S n) -> HiddenTree (S n)
@@ -69,6 +72,8 @@ deriving instance Show (HiddenTree n)
 data AlmostTree :: Nat -> * where
   AT :: Sing c -> (Tree c1 n) -> A -> (Tree c2 n) -> AlmostTree (Incr c n)
 deriving instance Show (AlmostTree n)
+
+-- four balance functions (w/o catch-all): 18 LOC
 
 -- input color is implicitly black 
 balanceLB ::  AlmostTree n -> A -> Tree c n -> HiddenTree (S n)
@@ -100,6 +105,8 @@ balanceLR (HB l) x r = AT SR l x r
 balanceRR :: Tree c n -> A -> HiddenTree n -> AlmostTree n
 balanceRR l x (HR r) = AT SR l x r
 balanceRR l x (HB r) = AT SR l x r
+
+-- other functions: 20
 
 -- forget that the top node of the tree satisfies the color invariant
 forget :: HiddenTree n -> AlmostTree n

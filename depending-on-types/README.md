@@ -1,4 +1,4 @@
-Examples from ICFP 2014 talk "Depending on Types"
+Examples from "Depending on Types"
 
 - [Okasaki.hs](Okasaki.hs)
    Chris Okasaki's 1993 functional pearl: insertion into red black trees
