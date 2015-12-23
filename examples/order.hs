@@ -137,7 +137,7 @@ type family LE (a :: TB P)(b :: TB P) where
   LE a b = False
 
 {- Note that we can't write the singleton version of this 
-   function as using the same GADT pattern
+   function using the same GADT pattern
    matching isn't as clever as closed type families. 
    So the last case doesn't type check. 
 
