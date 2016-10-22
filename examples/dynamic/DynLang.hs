@@ -9,26 +9,11 @@ import Text.PrettyPrint
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 
+-- http://github.com/sweirich/  dth/examples/dynamic
 
--- sy = \ f -> (\ x -> f (x x)) (\ x -> f (x x))
+--sy = \ f -> (\ x -> f (x x)) (\ x -> f (x x))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-- D == D -> D
 
 -- And we can also do so in Haskell, with the use of type Dynamic
 -- and a few calls to `toDyn` and `fromDyn`
@@ -38,9 +23,6 @@ yy = \ f -> (\ x -> fromD f (fromD x x))
 
 fromD :: Dynamic -> Dynamic -> Dynamic
 fromD d = fromDyn d (error "Dynamic -> Dynamic expected")
-
-
-
 
 
 
@@ -106,7 +88,8 @@ test_e0 :: Exp
 test_e0 = (1 + 2) + 3
 
 test_e1 :: Exp          
-test_e1 = Lam "x" ((Var "x") + 1) `App` 2 
+test_e1 = Lam "x" ((Var "x") + 1) `App` 2
+
 
 -- Ane we can write the Y combinator in this language           
 -- to define our favorite recursive function     
@@ -119,7 +102,7 @@ fbody = Lam "fact"
         (Lam "x" 
          (If (Prim Eq (Var "x") 0)
           1
-          (Var "x" `App` (Var "fact" * (Var "x" - 1)))))
+          (Var "x" * (Var "fact" `App` (Var "x" - 1)))))
 fact5 :: Exp
 fact5 = App (App y fbody) 5
 
@@ -132,8 +115,8 @@ fact5 = App (App y fbody) 5
 seval :: Map.Map String Dynamic -> Exp -> Dynamic
 seval env (Lam s e)   =
   toDyn (\v -> seval (Map.insert s v env) e)
-seval env (App e1 e2) = fromMaybe (error "apply failed") $
-  apply (seval env e1) (seval env e2)
+seval env (App e1 e2) = -- fromMaybe (error "apply failed") $
+  fromD (seval env e1) (seval env e2)
 seval env (Var x)     =
   fromMaybe (error "unbound variable") $
   Map.lookup x env         
