@@ -1,12 +1,9 @@
-{-# LANGUAGE GADTs, ScopedTypeVariables, TypeOperators, FlexibleInstances #-}
+{-# LANGUAGE GADTs, ScopedTypeVariables, TypeOperators, FlexibleInstances, TypeApplications #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns -fno-warn-name-shadowing -Wall #-}
 
 module DynLang where  
 
-import Data.Dynamic  
-
--- Hint: the Data.Typeable interface from 7.10.3 won't cut it.
---- import Unsafe.Coerce (unsafeCoerce)
+import Data.Dynamic
 
 import Text.PrettyPrint 
 import qualified Data.Map as Map
@@ -26,19 +23,58 @@ import Data.Maybe (fromMaybe)
 
 
 
+
+
+
+
+
+
+
 -- And we can also do so in Haskell, with the use of type Dynamic
 -- and a few calls to `toDyn` and `fromDyn`
-ht :: Dynamic -> Dynamic
-ht = \ f ->
-  (\ x -> fromD f (fromD x x))
-  (toDyn (\ x -> fromD f (fromD x x)))  where
-    fromD x = fromDyn x (error "dynamic type error" :: Dynamic -> Dynamic)  
+yy :: Dynamic -> Dynamic
+yy = \ f -> (\ x -> fromD f (fromD x x))
+            (toDyn (\ x -> fromD f (fromD x x)))  
 
+fromD :: Dynamic -> Dynamic -> Dynamic
+fromD d = fromDyn d (error "Dynamic -> Dynamic expected")
+
+
+
+
+
+
+
+
+
+
+unsafeInt :: Dynamic -> Int
+unsafeInt d = fromDyn d (error "Int expected")
+
+dynFact :: Dynamic
+dynFact = yy (toDyn (\dfact ->
+                      toDyn (\x -> let
+                                x' = unsafeInt x
+                                in
+                                 if x'  == 0 
+                                 then (toDyn (1 :: Int))
+                                 else (toDyn (x' * (unsafeInt
+                                                    ((fromD dfact (toDyn (x' - 1))))))))))
+                           
+-- note: not dynApply from the standard library
+apply :: Dynamic -> Dynamic -> Maybe Dynamic           
+apply f x = 
+  case fromDynamic f of 
+    Just    f' -> Just $ f' x
+    Nothing    -> Nothing
+
+testFact :: Int
+testFact = unsafeInt $ fromMaybe (error "oops") (apply dynFact (toDyn (5 ::Int)))
 
 -------------------------------------------------------
 -------------------------------------------------------
   
--- Now consider a simple, dynamically-typed language
+-- Now consider a simple, dynamically-typed language embedded in Haskell
   
 data Prim = Plus 
           | Times 
@@ -52,6 +88,7 @@ data Exp = Lam String Exp
          | Prim Prim Exp Exp
          | If Exp Exp Exp
 
+-- convenience in making examples
 instance Num Exp  where
   (+) = Prim Plus
   (-) = Prim Minus
@@ -79,10 +116,10 @@ y = Lam "f" (App e e) where
 
 fbody :: Exp     
 fbody = Lam "fact" 
-       (Lam "x" 
-        (If (Prim Eq (Var "x") 0)
-            1
-            (Var "x" `App` (Var "fact" * (Var "x" - 1)))))
+        (Lam "x" 
+         (If (Prim Eq (Var "x") 0)
+          1
+          (Var "x" `App` (Var "fact" * (Var "x" - 1)))))
 fact5 :: Exp
 fact5 = App (App y fbody) 5
 
@@ -95,10 +132,11 @@ fact5 = App (App y fbody) 5
 seval :: Map.Map String Dynamic -> Exp -> Dynamic
 seval env (Lam s e)   =
   toDyn (\v -> seval (Map.insert s v env) e)
-seval env (App e1 e2) =
-  fromMaybe (error "apply failed")     $ apply (seval env e1) (seval env e2)
+seval env (App e1 e2) = fromMaybe (error "apply failed") $
+  apply (seval env e1) (seval env e2)
 seval env (Var x)     =
-  fromMaybe (error "unbound variable") $ Map.lookup x env         
+  fromMaybe (error "unbound variable") $
+  Map.lookup x env         
 seval _   (LitInt i)  = toDyn i
 seval _   (LitBool b) = toDyn b
 seval env (Prim p e1 e2) =
@@ -106,15 +144,8 @@ seval env (Prim p e1 e2) =
 seval env (If e0 e1 e2)  = case fromDynamic (seval env e0) of
   Just True -> seval env e1
   Just False -> seval env e2
-  Nothing    -> error "type error"
-           
--- note: not dynApply from the standard library
-apply :: Dynamic -> Dynamic -> Maybe Dynamic           
-apply f x = 
-  case fromDynamic f of 
-    Just    f' -> Just $ f' x
-    Nothing    -> Nothing
-                           
+  Nothing    -> error "type error in if"
+                                      
 sevalPrim :: Prim -> Dynamic -> Dynamic -> Dynamic
 sevalPrim Plus  = wrap (+)
 sevalPrim Times = wrap (*)
@@ -125,7 +156,7 @@ wrap :: (Int -> Int -> Int) -> Dynamic -> Dynamic -> Dynamic
 wrap f d1 d2 = case (fromDynamic d1 , 
                      fromDynamic d2 ) of 
   (Just i1, Just i2) -> toDyn (f i1 i2)
-  (_,_) -> error "type error"
+  (_,_) -> error "type error in primitive"
            
 
 eqDyn :: Dynamic -> Dynamic -> Maybe Bool
@@ -194,7 +225,7 @@ eval env (HFrom e)       = myFromDynamic (eval env e)
 eval env (HTo e)         = toDyn (eval env e)
 eval env (HIf e0 e1 e2)  = if (eval env e0) then eval env e1 else eval env e2
   
-  
+-- a slightly better error message
 myFromDynamic :: forall a. Typeable a => Dynamic -> a              
 myFromDynamic d = case fromDynamic d of
   Just a -> a
@@ -215,11 +246,11 @@ evalPrim HEqDyn  = \ x x' -> fromMaybe (error "eqDyn") (eqDyn x x')
 test_eval :: HExp Int -> Int
 test_eval e = eval Map.empty e
 
-test_he0 :: Int
-test_he0 = test_eval (HPrim HPlus (HPrim HPlus (HLit 1) (HLit 2)) (HLit 3))
+test_he0 :: HExp Int
+test_he0 = (1 + 2) + 3
 
-test_he1 :: Int
-test_he1 = test_eval (HApp (HLam "x" (HPrim HPlus (HFrom (HVar "x")) (HLit (1 :: Int)))) 
+test_he1 :: HExp Int
+test_he1 = (HApp (HLam "x" (HPrim HPlus (HFrom (HVar "x")) (HLit (1 :: Int)))) 
                       (HTo (HLit (2 :: Int))))
                              
 hy :: HExp (Dynamic -> Dynamic)           
@@ -244,15 +275,22 @@ test_fact5 = test_eval (HFrom (HApp (HFrom (HApp hy (HTo hfact)))
 -----------------------------------------------------------------
 -----------------------------------------------------------------
 
--- Challenge problem:
+-- Fun challenge problem:
 
 compile :: Exp -> HExp Dynamic
 compile = undefined
 
 
 
+
+
+
+
+
+
 -----------------------------------------------------------------
 -----------------------------------------------------------------
+-- (simplistic pretty printer)
 
 instance Show (HExp a) where
   show x = render (pp x)
