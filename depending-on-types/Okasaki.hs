@@ -21,7 +21,7 @@ data Tree :: * where
 -- two fixes: 
 --     - blacken result, so that root is black  
 --     - rebalance 
-insert :: Tree -> A -> Tree                    
+--insert :: Tree -> A -> Tree                    
 insert s x = blacken (ins s) 
    where ins E = T R E x E
          ins s@(T color a y b) 
@@ -29,8 +29,9 @@ insert s x = blacken (ins s)
              | x > y     = balance color a y (ins b)
              | otherwise = s
          blacken (T _ a x b) = T B a x b
+         blacken _ = error "impossible"
 
-balance :: Color -> Tree -> A -> Tree -> Tree
+--balance :: Color -> Tree -> A -> Tree -> Tree
 balance B (T R (T R a x b) y c) z d = T R (T B a x b) y (T B c z d)
 balance B (T R a x (T R b y c)) z d = T R (T B a x b) y (T B c z d)
 balance B a x (T R (T R b y c) z d) = T R (T B a x b) y (T B c z d)

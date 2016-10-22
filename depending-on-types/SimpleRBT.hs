@@ -1,4 +1,4 @@
-{-# LANGUAGE InstanceSigs,GADTs, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies #-}
+{-# LANGUAGE InstanceSigs,GADTs, DataKinds, KindSignatures, MultiParamTypeClasses, FlexibleInstances, TypeFamilies, ScopedTypeVariables #-}
 
 -- A version of Red-black trees that uses GADTs to ensure red-black tree
 -- invariants. 
@@ -14,7 +14,7 @@
 module SimpleRBT where
 
 import Prelude hiding (max)
-import Test.QuickCheck hiding (elements)
+---import Test.QuickCheck hiding (elements)
 import Data.List(nub,sort)
 import Control.Monad(liftM)
 import Data.Type.Equality
@@ -132,7 +132,7 @@ balanceR c a x (AT SR b@E z d@E)       = AT c a x (TR b z d)
                                                         
 
 -- testing code to ensure that we didn't miss any cases
-
+{-
 
 -- We can't automatically derive show and equality
 -- methods for GADTs.  
@@ -168,7 +168,7 @@ instance Eq a => Eq (RBT a) where
 
 
 instance (Ord a, Arbitrary a) => Arbitrary (RBT a)  where
-  arbitrary = liftM (foldr insert empty) arbitrary
+  arbitrary = liftM (foldr insert empty) (arbitrary :: Gen [a])
        
 isSortedNoDups :: Ord a => [a] -> Bool  
 isSortedNoDups x = nub (sort x) == x              
@@ -180,6 +180,7 @@ check_insert = do
     putStrLn "BST property"
     quickCheck prop_BST
 
+-}
 main :: IO ()
 main = 
  do
