@@ -22,11 +22,10 @@
 
 -- See RegexpExample.hs for this library in action.
 
-module RegexpSet
-       where
+module RegexpSet where
 
 import Data.Kind (Type)
-import Data.Type.Equality ((:~:)(..),TestEquality(..))
+import Data.Type.Equality ((:~:)(..))
 
 import GHC.TypeLits(TypeError(..),ErrorMessage(..),symbolVal,Symbol(..),KnownSymbol(..))
 import Data.Singletons.Prelude
@@ -44,7 +43,7 @@ import Data.List(foldl')
 -- marked subpatterns that *could* appear in the output
 
 -- We represent such sets in the type system as a sorted list of
--- symbols.
+-- symbols, aka names (n).
 type U = [Symbol]
 
 type Empty = '[]
@@ -57,27 +56,30 @@ type family Union (a :: U) (b :: U) :: U where
     Union '[] '[] = '[]
     Union m '[] = m
     Union '[] m = m
-    Union (n1:t1)(n2:t2) =
+    Union (n1:t1) (n2:t2) =
       If (n1 :== n2)
          (n1 : Union t1 t2)
-         (If (n1 :<= n2) (n1 : Union t1 (n2:t2)) (n2 : Union (n1:t1) t2))
+         (If (n1 :<= n2)
+             (n1 : Union t1 (n2:t2))
+             (n2 : Union (n1:t1) t2))
+-- Note that :== and :<= are equality and comparison operators for Symbols
+-- defined in the GHC.TypeLits extension.
 
--- Well-founded sets are exactly those constructed only
---   from a finite number of [] and :
--- Well-founded have the property (among others) that
---   the union of a set with itself does not change the set
--- They also have singletons (SingI) for these sets,
+
+-- Well-founded sets are exactly those constructed only from [] and :
+-- Well-founded sets have the property (among others) that
+-- the union of a set with itself does not change the set.
+-- Haskell can prove this property (automatically) for [] and :
+-- Well-founded sets also have singletons (SingI constraints),
 -- which we wouldn't need if Haskell were a full-spectrum
 -- dependently-typed language
 class (s ~ Union s s, SingI s) => Wf (s :: U) where
-  
 instance Wf '[] where
 instance (SingI n, Wf s) => Wf (n : s) where
   
 
 ------------------------------------------------------------------------  
 -- this constraint rules out "infinite" sets of the form
--- (which has a coinductive proof of the union property?)
 type family T :: U where
   T = "a" : T
 
@@ -91,11 +93,12 @@ x1 = testWf @'[ "a", "b" ]
 -- Shhh! Don't tell anyone!
 
 type Π n = Sing n
+
 ------------------------------------------------------------------------
 -- A dictionary indexed by a type-level set (the domain)
 -- Keeps the entries in the same sorted order as the keys
--- For convenience, we store the keys in the data structure, although
---     this is not strictly required.
+-- For convenience, we store the names in the data structure, although
+-- this is not strictly required.
 
 type Result (s :: U) = Maybe (EntryList s)
 
@@ -122,24 +125,24 @@ combine (e1@(Entry n1 ss1) :> t1) (e2@(Entry n2 ss2) :> t2) =
      STrue  -> e1 :> combine t1 (e2 :> t2)
      SFalse ->  e2 :> combine (e1 :> t1) t2 
 
--- Combine two results together, combining their lists (if present)
+-- A "default" EntryList.
+-- [] for each name in the domain of the set
+-- Needs a runtime representation of the set for construction
+nils :: SingI s => EntryList s
+nils = nils' sing where 
+    nils' :: Sing ss -> EntryList ss
+    nils' SNil        = Nil
+    nils' (SCons n r) = Entry n [] :> nils' r
+
+-- | Combine two results together, combining their lists (if present)
 -- If either result fails, return Nothing
 both :: Result s1 -> Result s2 -> Result (Union s1 s2)
 both (Just xs) (Just ys) = Just $ combine xs ys
 both _         _         = Nothing
 
 
-
--- nils for each string in the regular expression
-nils :: SingI s => EntryList s
-nils = nils' sing where 
-    nils' :: Sing ss -> EntryList ss
-    nils' SNil         = Nil
-    nils' (SCons sn r) = Entry sn [] :> nils' r
-
--- Combine two results together, taking the first successful one
--- (if present) 
--- Note that we need to merge in empty labels for the ones that may
+-- | Combine two results together, taking the first successful one
+-- Note that we need to add in empty labels for the ones that may
 -- not be present in the successful version
 first :: forall s1 s2. (SingI s1, SingI s2) =>
                 Result s1 -> Result s2 -> Result (Union s1 s2)
@@ -150,7 +153,6 @@ first (Just x) _        = Just $ x `combine` nils @s2
 
 -------------------------------------------------------------------------
 -- Type class instances for accessing the dictionary statically.
-
 
 -- This general purpose class for overloaded record selectors will 
 -- eventually be added to  Data.Record. We can use this generic interface
@@ -214,9 +216,8 @@ instance (Get i) => Get (DT i) where
 -- reduces: r + r to just r
 ralt :: (Wf s1, Wf s2) =>
         R s1 -> R s2 -> R (Union s1 s2)
---ralt r1 r2 | isVoid r1 = r2  -- cannot do this because may be remembering some marks
+--ralt r1 r2 | isVoid r1 = r2  -- cannot do this because Void may be "remembering" some names
 --ralt r1 r2 | isVoid r2 = r1
---ralt r1 r2 | Just Refl <- r1 `testEquality` r2 = r1 
 ralt r1 r2 = Ralt r1 r2
 
 -- reduces (r,epsilon) (epsilon,r) to r
@@ -229,6 +230,7 @@ rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
+-- is this the regexp that always fails?
 isVoid :: R s -> Bool
 isVoid Rvoid          = True
 isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
@@ -237,19 +239,19 @@ isVoid (Rstar r)      = isVoid r
 isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
+-- is this the regexp that accepts only the empty string?
 isEmpty :: R s -> Maybe (s :~: Empty)
 isEmpty (Rchar s) = if Set.null s then Just Refl else Nothing
-isEmpty _ = Nothing
+isEmpty _         = Nothing
 
 -- convenience function for marks
 -- MUST use scoped type variables and
--- explicit type application for 'sym' to avoid ambiguity
-rmark :: forall n s. (KnownSymbol n, Wf s) =>
-     R s -> R (Union (One n) s)
+-- explicit type application for 'n' to avoid ambiguity
+rmark :: forall n s. (KnownSymbol n, Wf s) => R s -> R (Union (One n) s)
 rmark r = Rmark (sing @Symbol @n) "" r
 
--- r** = r*
--- empty* = empty
+-- r** ~> r*
+-- empty* ~> empty
 rstar :: (Wf s) => R s -> R s
 rstar (Rstar s) = Rstar s
 rstar r | Just Refl <- isEmpty r = rempty
@@ -274,9 +276,8 @@ rchars s = Rchar s
 
 -- Our GADT, indexed by the set of pattern variables
 data R (ss :: U) where
-  -- Rempty :: R Empty  -- can replace with RChar (Set.empty)
-  Rvoid  :: R s      -- try adding a singleton here to pin down s?
-                     -- can be anything b/c will always fail
+  -- Rempty :: R Empty  -- subsumed by RChar (Set.empty)
+  Rvoid  :: R s         -- can be anything b/c will always fail
   Rseq   :: (Wf s1, Wf s2) =>
             R s1 -> R s2 -> R (Union s1 s2)
   Ralt   :: (Wf s1, Wf s2) =>
@@ -295,25 +296,24 @@ data R (ss :: U) where
 -- we compute the derivative for each letter, then
 -- extract the data structure stored in the regexp
 match :: Wf s => R s -> String -> Result s
-match r w = extract (foldl deriv r w)
+match r w = extract (foldl' deriv r w)
 
--- extract the result from the regular expression
+-- | Extract the result from the regular expression
 -- if the regular expression is nullable
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
-extract :: Wf s => R s -> Result s
+extract :: forall s. Wf s => R s -> Result s
 extract (Rchar cs)
       | Set.null cs    = Just Nil 
-extract (Rseq r1 r2)   = both (extract r1) (extract r2)
+extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
 extract (Ralt r1 r2)   = first (extract r1) (extract r2)
-extract (Rstar r)      = first (Just Nil)   (extract r)
+extract (Rstar r)      = Just $ nils @s
 extract (Rmark n s r)  = both mark (extract r) where
       mark = Just (Entry n [s] :> Nil)
 extract _              = Nothing
 
 -- Can the regexp match the empty string? 
 nullable :: R n -> Bool
--- nullable Rempty         = True
 nullable Rvoid          = False
 nullable (Rchar cs)     = Set.empty == cs
 nullable (Rseq re1 re2) = nullable re1 && nullable re2
@@ -325,18 +325,17 @@ nullable (Rnot cs)      = False
 
 -- regular expression derivative function
 deriv :: forall s. Wf s => R s -> Char -> R s
-deriv (Rchar s)     c = if Set.member c s then rempty else Rvoid
---deriv Rempty       c   = Rvoid
-deriv (Rseq r1 r2) c | nullable r1 =
-     ralt (rseq (deriv r1 c) r2) r1' where
-       r1' = rseq (markEmpty r1) (deriv r2 c)
+deriv (Rseq r1 r2)  c | nullable r1 =
+     ralt (rseq (deriv r1 c) r2) 
+          (rseq (markEmpty r1) (deriv r2 c))
 deriv (Rseq r1 r2)  c = rseq (deriv r1 c) r2
 deriv (Ralt r1 r2)  c = ralt (deriv r1 c) (deriv r2 c)
 deriv (Rstar r)     c = rseq (deriv r c) (rstar r)
 deriv Rvoid         c = Rvoid
 deriv (Rmark n w r) c = Rmark n (w ++ [c]) (deriv r c)
-deriv Rany  c          = rempty
-deriv (Rnot s)      c  = if Set.member c s then rvoid else rempty
+deriv (Rchar s)     c = if Set.member c s then rempty else Rvoid
+deriv Rany  c         = rempty
+deriv (Rnot s)      c = if Set.member c s then Rvoid else rempty
 
 
 -- Create a regexp that *only* matches the empty string
@@ -352,25 +351,16 @@ markEmpty Rany          = rempty
 markEmpty (Rnot cs)     = rempty
 markEmpty Rvoid         = Rvoid
 
--- create a regexp that doesn't match any strings, but still
--- contains the data at marks
-markVoid :: R n -> R n
-markVoid (Rmark p w r) = Rmark p w (markVoid r)
-markVoid (Ralt r1 r2)  = ralt  (markVoid r1) (markVoid r2)
-markVoid (Rseq r1 r2)  = rseq  (markVoid r1) (markVoid r2)
-markVoid (Rstar r)     = rstar (markVoid r)
-markVoid (Rchar s)     = Rvoid
---markVoid Rempty        = Rvoid
-markVoid Rvoid         = Rvoid  
-markVoid Rany          = Rvoid
-markVoid (Rnot cs)     = Rvoid
-
-
 -------------------------------------------------------------------------
 
--- Show instance for the EntryList dictionary
+-- Show instances
+
+instance Show (Sing (n :: Symbol)) where
+  show ps@SSym = symbolVal ps
+
 instance Show (Entry s) where
-  show (Entry sn ss) = showSymbol sn ++ "=" ++ show ss
+  show (Entry sn ss) = show sn ++ "=" ++ show ss where
+
 instance Show (EntryList s) where
   show xs = "{" ++ show' xs where
     show' :: EntryList xs -> String
@@ -378,8 +368,6 @@ instance Show (EntryList s) where
     show' (e :> Nil) = show e ++ "}"
     show' (e :> xs)  = show e ++ "," ++ show' xs
 
--------------------------------------------------------
--- Show instance for regular expressions
 instance Show (R n) where
   show Rvoid  = "∅"   
   show (Rseq r1 r2) = show r1 ++ show r2
@@ -390,20 +378,13 @@ instance Show (R n) where
                    else if cs == (Set.fromList ['0' .. '9']) then "\\d"
                    else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
                    else "[" ++ Set.toList cs ++ "]"
-  show (Rmark pn w r)  = "(<?" ++ showSymbol pn ++ ">" ++ show r ++ ")"
+  show (Rmark pn w r)  = "(<?" ++ show pn ++ ">" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "[^" ++ show cs ++ "]"
 
 -------------------------------------------------------------------------
 
-
--- | Convenience function for showing symbols
-showSymbol :: Π (n :: Symbol) -> String
-showSymbol ps = case ps of SSym -> symbolVal ps
-
--------------------------------------------------------------------------
-
--- | Singleton version of union function (not used here, but for completeness)
+-- | Singleton version of union function (not used here)
 sUnion :: Π s1 -> Π s2 -> Sing (Union s1 s2)
 sUnion SNil SNil = SNil
 sUnion m    SNil = m
@@ -418,6 +399,7 @@ sUnion s1@(n1 `SCons` st1)
 
 
 -- | All sets that we have singletons for are well-formed
+-- Could replace with unsafeCoerce...
 withWf :: Sing s -> (Wf s => c) -> c
 withWf ss f = case wfSing ss of
   SomeSet _ -> f
@@ -431,7 +413,7 @@ wfSing s@(SCons sn ss) = case wfSing ss of
   SomeSet _ -> withSingI sn $ SomeSet s
   
 -------------------------------------------------------
--- Note: we can define a monoid instance for EntryLists
+-- We can define a monoid instance for EntryLists
 
 instance SingI s => Monoid (EntryList s) where
   mempty  = nils
@@ -441,25 +423,3 @@ instance SingI s => Monoid (EntryList s) where
     mappend' Nil Nil = Nil
     mappend' (Entry n1 ss1 :> t1) (Entry _ ss2 :> t2) =
        Entry n1 (ss1 ++ ss2) :> mappend' t1 t2
-
-------------------------------------------------------------------------
--- This does not really compare for equality --- the voids get in the way
-instance TestEquality R where
---  Rempty     `testEquality` Rempty     = Just Refl
-  Rany     `testEquality` Rany     = Just Refl
-  Rseq t1 t2 `testEquality` Rseq u1 u2 |
-    Just Refl <- testEquality t1 u1,
-    Just Refl <- testEquality t2 u2    = Just Refl
-  Ralt t1 t2 `testEquality` Ralt u1 u2 |
-    Just Refl <- testEquality t1 u1,
-    Just Refl <- testEquality t2 u2    = Just Refl
-  Rstar t1   `testEquality` Rstar u1   |
-    Just Refl <- testEquality t1 u1    = Just Refl
-  Rchar s1   `testEquality` Rchar s2   | s1 == s2 = Just Refl
-  Rnot s1   `testEquality` Rnot s2   | s1 == s2 = Just Refl
-  Rmark n1 s1 r1 `testEquality` Rmark n2 s2 r2 |
-    s1 == s2,
-    Just Refl <- testEquality n1 n2,
-    Just Refl <- r1 `testEquality` r2  = Just Refl
-  Rvoid      `testEquality` Rvoid      = Nothing    -- have to ignore voids                                     
-  _          `testEquality` _          = Nothing
