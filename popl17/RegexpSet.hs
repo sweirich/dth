@@ -44,7 +44,7 @@ import Data.List(foldl')
 
 -- We represent such sets in the type system as a sorted list of
 -- symbols, aka names (n).
-type U = [Symbol]
+type S = [Symbol]
 
 type Empty = '[]
 
@@ -52,7 +52,7 @@ type One n = '[ n ]
 
 -- | Union of two sets, defined as a closed type family
 -- Assumes both lists are sorted
-type family Union (a :: U) (b :: U) :: U where
+type family Union (a :: S) (b :: S) :: S where
     Union '[] '[] = '[]
     Union m '[] = m
     Union '[] m = m
@@ -73,21 +73,10 @@ type family Union (a :: U) (b :: U) :: U where
 -- Well-founded sets also have singletons (SingI constraints),
 -- which we wouldn't need if Haskell were a full-spectrum
 -- dependently-typed language
-class (s ~ Union s s, SingI s) => Wf (s :: U) where
+class (s ~ Union s s, SingI s) => Wf (s :: S) where
 instance Wf '[] where
 instance (SingI n, Wf s) => Wf (n : s) where
-  
-
-------------------------------------------------------------------------  
--- this constraint rules out "infinite" sets of the form
-type family T :: U where
-  T = "a" : T
-
-testWf :: Wf a => ()
-testWf = ()
-
-x1 = testWf @'[ "a", "b" ]
--- x2 = testWf @T   -- doesn't type check
+ 
 
 ------------------------------------------------------------------------
 -- Shhh! Don't tell anyone!
@@ -100,21 +89,21 @@ type Π n = Sing n
 -- For convenience, we store the names in the data structure, although
 -- this is not strictly required.
 
-type Result (s :: U) = Maybe (EntryList s)
+type Result (s :: S) = Maybe (Dict s)
 
 data Entry (n :: Symbol) where
    Entry :: Π n -> [String] -> Entry n
    
-data EntryList (s :: [Symbol]) where
-   Nil  :: EntryList '[]
-   (:>) :: Entry n -> EntryList tl -> EntryList (n : tl) 
+data Dict (s :: [Symbol]) where
+   Nil  :: Dict '[]
+   (:>) :: Entry n -> Dict tl -> Dict (n : tl) 
 
 infixr 5 :>
 
 
 ------
 
-combine :: EntryList s1 -> EntryList s2 -> EntryList (Union s1 s2)
+combine :: Dict s1 -> Dict s2 -> Dict (Union s1 s2)
 combine Nil Nil = Nil
 combine Nil b   = b
 combine b   Nil = b
@@ -125,12 +114,12 @@ combine (e1@(Entry n1 ss1) :> t1) (e2@(Entry n2 ss2) :> t2) =
      STrue  -> e1 :> combine t1 (e2 :> t2)
      SFalse ->  e2 :> combine (e1 :> t1) t2 
 
--- A "default" EntryList.
+-- A "default" Dict.
 -- [] for each name in the domain of the set
 -- Needs a runtime representation of the set for construction
-nils :: SingI s => EntryList s
+nils :: SingI s => Dict s
 nils = nils' sing where 
-    nils' :: Sing ss -> EntryList ss
+    nils' :: Sing ss -> Dict ss
     nils' SNil        = Nil
     nils' (SCons n r) = Entry n [] :> nils' r
 
@@ -151,6 +140,7 @@ first Nothing  (Just y) = Just $ nils @s1 `combine` y
 first (Just x) _        = Just $ x `combine` nils @s2
 
 
+
 -------------------------------------------------------------------------
 -- Type class instances for accessing the dictionary statically.
 
@@ -161,33 +151,33 @@ class HasField (n :: k) r a | n r -> a where
   getField    :: r -> a
 
 -- Instance for the result
-instance (HasField n (EntryList s) t) => HasField n (Result s) (Maybe t) where
-  getField (Just x) = Just  (getField @n x)
-  getField Nothing  = Nothing
+instance (HasField n (Dict s) [t]) => HasField n (Result s) [t] where
+  getField (Just x) = (getField @n x)
+  getField Nothing  = []
 
 -- Instance for a list of entries: first we have to find the string in the
 -- list (using the Find type family), and then we have to access the data
 -- structure using that index (using the Get type class).
-instance (Get (Find n s)) => HasField n (EntryList s) [String] where
+instance (Get (Find n s)) => HasField n (Dict s) [String] where
   getField x = getIndex @_ @_ @(Find n s) x
 
 
-data Index (n :: Symbol) (s :: U) where
+data Index (n :: Symbol) (s :: S) where
   DH :: Index n (n:s)
   DT :: Index n s -> Index n (m:s)
 
-type family Find (n :: Symbol) (s :: U) :: Index n s where
+type family Find (n :: Symbol) (s :: S) :: Index n s where
   Find n s = FindH n s s
 
 -- Using a closed type family to implement the partial function
 -- We take the list twice so that we can use it in the custom error message
-type family FindH (n :: Symbol) (s :: U) (t :: U) :: Index n s where
+type family FindH (n :: Symbol) (s :: S) (t :: S) :: Index n s where
   FindH n (n: s) t = DH
   FindH n (m: s) t = DT (FindH n s t)
   FindH n '[]    t = TypeError (Text n :<>: Text " not found in domain " :$$:
                                  Text "    {" :<>: ShowU t :<>: Text "}")
 
-type family ShowU (s :: U) :: ErrorMessage where
+type family ShowU (s :: S) :: ErrorMessage where
   ShowU '[]   = Text ""
   ShowU '[n]  = Text n
   ShowU (n:s) = Text n :<>: Text ", " :<>: ShowU s
@@ -195,7 +185,7 @@ type family ShowU (s :: U) :: ErrorMessage where
 -- Look up in the list, given an index into the list. This function is total
 -- because we know that the string will be in the domain.
 class Get (p :: Index n s) where
-  getIndex :: EntryList s -> [String]
+  getIndex :: Dict s -> [String]
 
 instance Get DH where
   getIndex (Entry _ v :> _) = v
@@ -203,22 +193,29 @@ instance Get DH where
 instance (Get i) => Get (DT i) where
   getIndex (_ :> xs) = getIndex @_ @_ @i xs
 
+------------------------------------------------------
+-- Our GADT for regular expressions
+-- indexed by the set of pattern names
+data R (s :: S) where
+  -- Rempty :: R Empty  -- subsumed by RChar (Set.empty)
+  Rvoid  :: R s         -- always fails, set can be anything 
+  Rseq   :: (Wf s1, Wf s2) =>
+            R s1 -> R s2 -> R (Union s1 s2)
+  Ralt   :: (Wf s1, Wf s2) =>
+            R s1 -> R s2 -> R (Union s1 s2)
+  Rstar  :: (Wf s) => R s -> R s
+  Rchar  :: (Set Char) -> R Empty
+  Rany   :: R Empty
+  Rnot   :: Set Char -> R Empty
+  Rmark  :: (Wf s) => Π n -> String -> R s -> R (Union (One n) s)
 
 
 -------------------------------------------------------------------------
--- Smart constructors for regular expressions:
+-- Smart constructors for regular expressions
 --
--- We optimize the regular expression whenever we
--- build it. These optimizations are necessary for efficient execution of
--- the regular expression matcher.
-
--- Construct an alternative
--- reduces: r + r to just r
-ralt :: (Wf s1, Wf s2) =>
-        R s1 -> R s2 -> R (Union s1 s2)
---ralt r1 r2 | isVoid r1 = r2  -- cannot do this because Void may be "remembering" some names
---ralt r1 r2 | isVoid r2 = r1
-ralt r1 r2 = Ralt r1 r2
+-- We optimize the regular expression whenever we build it. These
+-- optimizations are necessary for efficient execution of the regular
+-- expression matcher.
 
 -- reduces (r,epsilon) (epsilon,r) to r
 -- (r,void) and (void,r) to void
@@ -230,19 +227,16 @@ rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
--- is this the regexp that always fails?
-isVoid :: R s -> Bool
-isVoid Rvoid          = True
-isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
-isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
-isVoid (Rstar r)      = isVoid r
-isVoid (Rmark ps s r) = isVoid r
-isVoid _              = False
-
--- is this the regexp that accepts only the empty string?
-isEmpty :: R s -> Maybe (s :~: Empty)
-isEmpty (Rchar s) = if Set.null s then Just Refl else Nothing
-isEmpty _         = Nothing
+-- Construct an alternative, doesn't do any optimization
+ralt :: (Wf s1, Wf s2) =>
+        R s1 -> R s2 -> R (Union s1 s2)
+--ralt r1 r2 | isVoid r1 = r2  -- cannot do this because Void may be "remembering" some names
+--ralt r1 r2 | isVoid r2 = r1
+ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
+ralt Rany       (Rchar s ) = Rany
+ralt (Rchar s)  Rany       = Rany
+ralt (Rnot s1) (Rnot s2)   = Rchar (s1 `Set.intersection` s2)
+ralt r1 r2                 = Ralt r1 r2
 
 -- convenience function for marks
 -- MUST use scoped type variables and
@@ -274,21 +268,20 @@ rchars :: Set Char -> R Empty
 rchars s = Rchar s
 
 
--- Our GADT, indexed by the set of pattern variables
-data R (ss :: U) where
-  -- Rempty :: R Empty  -- subsumed by RChar (Set.empty)
-  Rvoid  :: R s         -- can be anything b/c will always fail
-  Rseq   :: (Wf s1, Wf s2) =>
-            R s1 -> R s2 -> R (Union s1 s2)
-  Ralt   :: (Wf s1, Wf s2) =>
-            R s1 -> R s2 -> R (Union s1 s2)
-  Rstar  :: (Wf s) => R s -> R s
-  Rchar  :: (Set Char) -> R Empty
-  Rany   :: R Empty
-  Rnot   :: Set Char -> R Empty
-  Rmark  :: (Wf s) => Π n -> String -> R s -> R (Union (One n) s)
+------------------------------------------------------
+-- is this the regexp that always fails?
+isVoid :: R s -> Bool
+isVoid Rvoid          = True
+isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
+isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
+isVoid (Rstar r)      = isVoid r
+isVoid (Rmark ps s r) = isVoid r
+isVoid _              = False
 
-
+-- is this the regexp that accepts only the empty string?
+isEmpty :: R s -> Maybe (s :~: Empty)
+isEmpty (Rchar s) = if Set.null s then Just Refl else Nothing
+isEmpty _         = Nothing
 
 ------------------------------------------------------
 
@@ -303,8 +296,7 @@ match r w = extract (foldl' deriv r w)
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
 extract :: forall s. Wf s => R s -> Result s
-extract (Rchar cs)
-      | Set.null cs    = Just Nil 
+extract (Rchar cs)     = Just Nil
 extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
 extract (Ralt r1 r2)   = first (extract r1) (extract r2)
 extract (Rstar r)      = Just $ nils @s
@@ -315,7 +307,7 @@ extract _              = Nothing
 -- Can the regexp match the empty string? 
 nullable :: R n -> Bool
 nullable Rvoid          = False
-nullable (Rchar cs)     = Set.empty == cs
+nullable (Rchar cs)     = True
 nullable (Rseq re1 re2) = nullable re1 && nullable re2
 nullable (Ralt re1 re2) = nullable re1 || nullable re2
 nullable (Rstar re)     = True
@@ -351,8 +343,41 @@ markEmpty Rany          = rempty
 markEmpty (Rnot cs)     = rempty
 markEmpty Rvoid         = Rvoid
 
+
 -------------------------------------------------------------------------
 
+{-
+rinit :: R Empty -> String -> Maybe (String, String)
+rinit r s | nullable r  = Just ([], s)
+          | [] <- s     = Nothing
+          | (x:xs) <- s = case rinit (deriv r x) xs of
+              Just (hd,tl) -> Just (x:hd, tl)
+              Nothing      -> Nothing
+-}
+
+
+startsWith :: R Empty -> String -> Bool
+startsWith r s = nullable r || not (null (fst (rinit r s)))
+
+rinit :: R Empty -> String -> (String, String)
+rinit r (x:xs) = let r' = deriv r x in
+                 if isVoid r' then ("", x:xs) else
+                   case rinit r' xs of
+                     (hd,tl) -> (x:hd, tl)                     
+rinit r [] = ("","") 
+
+ccons :: a -> [[a]] -> [[a]]
+ccons x []     = (x:[]):[]
+ccons x (y:ys) = (x:y) :ys
+
+split :: R Empty -> String -> [String]
+split r [] = []
+split r s@(x:xs) = case rinit r s of
+  ("",_)  -> ccons x (split r xs)
+  (ys,zs) -> [] : split r zs
+
+
+-------------------------------------------------------------------------
 -- Show instances
 
 instance Show (Sing (n :: Symbol)) where
@@ -361,9 +386,9 @@ instance Show (Sing (n :: Symbol)) where
 instance Show (Entry s) where
   show (Entry sn ss) = show sn ++ "=" ++ show ss where
 
-instance Show (EntryList s) where
+instance Show (Dict s) where
   show xs = "{" ++ show' xs where
-    show' :: EntryList xs -> String
+    show' :: Dict xs -> String
     show' Nil = "}"
     show' (e :> Nil) = show e ++ "}"
     show' (e :> xs)  = show e ++ "," ++ show' xs
@@ -378,7 +403,7 @@ instance Show (R n) where
                    else if cs == (Set.fromList ['0' .. '9']) then "\\d"
                    else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
                    else "[" ++ Set.toList cs ++ "]"
-  show (Rmark pn w r)  = "(<?" ++ show pn ++ ">" ++ show r ++ ")"
+  show (Rmark pn w r)  = "(?P<" ++ show pn ++ ">" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "[^" ++ show cs ++ "]"
 
@@ -407,19 +432,31 @@ withWf ss f = case wfSing ss of
 data WfD s where
   SomeSet :: Wf s => p s -> WfD s
 
-wfSing :: Sing (s :: U) -> WfD s
+wfSing :: Sing (s :: S) -> WfD s
 wfSing SNil = SomeSet SNil
 wfSing s@(SCons sn ss) = case wfSing ss of
   SomeSet _ -> withSingI sn $ SomeSet s
   
 -------------------------------------------------------
--- We can define a monoid instance for EntryLists
+-- We can define a monoid instance for Dicts
 
-instance SingI s => Monoid (EntryList s) where
+instance SingI s => Monoid (Dict s) where
   mempty  = nils
 
   mappend = mappend' where
-    mappend' :: EntryList ss -> EntryList ss -> EntryList ss    
+    mappend' :: Dict ss -> Dict ss -> Dict ss    
     mappend' Nil Nil = Nil
     mappend' (Entry n1 ss1 :> t1) (Entry _ ss2 :> t2) =
        Entry n1 (ss1 ++ ss2) :> mappend' t1 t2
+ 
+
+------------------------------------------------------------------------  
+-- the Wf constraint rules out "infinite" sets of the form
+type family T :: S where
+  T = "a" : T
+
+testWf :: Wf a => ()
+testWf = ()
+
+x1 = testWf @'[ "a", "b" ]
+-- x2 = testWf @T   -- doesn't type check

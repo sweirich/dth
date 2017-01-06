@@ -8,6 +8,7 @@
     MultiParamTypeClasses, ConstraintKinds #-}
 
 {-# OPTIONS_GHC -fdefer-type-errors #-}
+{-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module RegexpOcc where
@@ -25,7 +26,7 @@ import qualified Data.Set as Set
 import qualified Data.Char as Char
 
 import Data.List(foldl')
-
+import Data.Maybe(maybeToList)
 
 -- This type system infers the marked subexpressions of a given
 -- regular expression, and uses that information to make sure that
@@ -95,21 +96,22 @@ $(singletons [d|
 
 type U = [(Symbol,Occ)]
 
+{-
 rtest = rmark @"name" rname 
         `rseq` (ralt rempty (rstar rsep `rseq` rmark @"address" raddress))
         `rseq` (rstar rsep `rseq` (rstar (rmark @"email" rphone)))
-
+-}
 
 
 -- Singleton symbol
-sym :: forall s. SingI s => Sing (s :: Symbol)
-sym = sing @Symbol @s
+--sym :: forall s. SingI s => Sing (s :: Symbol)
+--sym = sing @Symbol @s
 
-sset :: forall s. SingI s => Sing (s :: U)
-sset = sing @U @s
+--sset :: forall s. SingI s => Sing (s :: U)
+--sset = sing @U @s
 
-showSymbol :: forall (s :: Symbol) p. SingI s => p s -> String
-showSymbol ps = case sing :: Sing s of SSym -> symbolVal ps
+showSymbol :: Sing (s :: Symbol) -> String
+showSymbol ps = case ps of SSym -> symbolVal ps
 
 
 
@@ -157,20 +159,23 @@ class (m ~ Alt m m,
        -- they also have runtime representations
        SingI m) =>
        WfSet (m :: U) where
-       singSet :: SingSet m
+--       singSet :: SingSet m
 
+-- note the superclass constraint is proved automatically
+-- by Haskell's type class resolution 
+instance WfSet '[] where
+--   singSet = WNil
+instance (SingI a, WfOcc o, WfSet s) => WfSet ('(a,o) : s) where
+--   singSet = WCons sing sing singSet
+
+       
+{-       
 data SingSet (s :: U) where
   WNil  :: SingSet '[]
   WCons :: (SingI a, SingI o, WfOcc o, WfSet t) => proxy1 a -> proxy2 o ->
      SingSet t -> SingSet ('(a,o) : t)
        
   
--- note the superclass constraint is proved automatically
--- by Haskell's type class resolution 
-instance WfSet '[] where
-   singSet = WNil
-instance (SingI a, WfOcc o, WfSet s) => WfSet ('(a,o) : s) where
-   singSet = WCons sing sing singSet
 
 
 data WfSetD s where
@@ -228,7 +233,7 @@ wfAlt s1@(WCons (pr1 :: p1a s1) (pr1a :: p1b o1) st1)
                (SomeSet st, SomeOcc o) -> SomeSet $ WCons (Proxy @s1) o st
       SGT -> case (wfAlt s1 st2, wfMakeOpt (sing @Occ @o2)) of
                (SomeSet st, SomeOcc o) -> SomeSet $ WCons (Proxy @s2) o st
-
+-}
 
                                                
 -- this constraint rules out "infinite" sets of the form
@@ -255,7 +260,7 @@ type family TOcc (o :: Occ) :: Type where
   TOcc Many = [String]
 
 data Entry (sym ::(Symbol,Occ)) where
-   Entry :: (SingI s, WfOcc o) => proxy (s :: Symbol) -> Sing o -> TOcc o -> Entry '(s,o)                                                                          
+   Entry :: Sing (s :: Symbol) -> Sing o -> TOcc o -> Entry '(s,o)                                                                          
 data List (sa :: (Symbol,Occ) -> Type) (s :: U) where
    Nil  :: List sa '[]
    Cons :: sa a -> List sa tl -> List sa (a : tl)
@@ -274,8 +279,8 @@ showOcc SMany s = show s
 
 toList :: List Entry s -> [ EEntry ]
 toList Nil = []
-toList (Cons (Entry (ps :: p a) so ss) xs) =
-  (EEntry (showSymbol ps) (showOcc so ss)) : toList xs where x = sym @a
+toList (Cons (Entry ps so ss) xs) =
+  (EEntry (showSymbol ps) (showOcc so ss)) : toList xs 
              
 instance Show (List Entry s) where
   show x = show (toList x)
@@ -296,12 +301,12 @@ combine :: List Entry s1 -> List Entry s2 -> List Entry (Merge s1 s2)
 combine Nil Nil = Nil
 combine Nil b = b
 combine b Nil = b
-combine (Cons e1@(Entry (ps :: p s) so1 ss) t1)
-        (Cons e2@(Entry (pt :: p2 t) so2 ts) t2) =
-  case ((sym @s) %:== (sym @t)) of
+combine (Cons e1@(Entry ps so1 ss) t1)
+        (Cons e2@(Entry pt so2 ts) t2) =
+  case (ps %:== pt) of
    STrue ->  Cons (Entry ps SMany (toMany so1 ss ++ toMany so2 ts))
                            (combine t1 t2)     
-   SFalse -> case sCompare (sym @s) (sym @t) of
+   SFalse -> case sCompare ps pt of
      SLT  -> Cons e1 (combine t1 (Cons e2 t2))
      SGT ->  Cons e2 (combine (Cons e1 t1) t2) 
 
@@ -352,65 +357,54 @@ glueOccRight SMany m SMany = m
 
 glueLeft :: Sing s1 -> List Entry s2 -> List Entry (Alt s1 s2)
 glueLeft SNil Nil = Nil
-glueLeft SNil (Cons  e2@(Entry (pt :: p2 t) so2 ts) t2) =
-  case wfMakeOpt so2 of
-    SomeOcc so ->
+glueLeft SNil (Cons  e2@(Entry pt so2 ts) t2) =
       Cons (Entry pt so tocc) (glueLeft SNil t2) where
---                 so   = sMakeOpt so2
+                 so   = sMakeOpt so2
                  tocc = weaken so2 ts
 glueLeft (SCons (STuple2 ps so) t) Nil =
     Cons (withSingI ps (Entry ps (sMakeOpt so) (defocc so))) (glueLeft t Nil)
  
 glueLeft (SCons e1@(STuple2 (ps :: Sing s) so1)  t1) 
-         (Cons  e2@(Entry (pt :: p2 t) so2 ts) t2) =
-  case (ps %:== (sym @t)) of
-   STrue -> case wfMax so1 so2 of
-     SomeOcc so ->
+         (Cons  e2@(Entry pt so2 ts) t2) =
+  case (ps %:== pt) of
+   STrue -> 
         Cons (withSingI ps (Entry ps so tocc)) (glueLeft t1 t2) where
-        --         so   = sMax so1 so2
+                 so   = sMax so1 so2
                  tocc = glueOccLeft so1 so2 ts
-   SFalse -> case sCompare ps (sym @t) of
-     SLT  -> case wfMakeOpt so1 of
-       SomeOcc so ->
+   SFalse -> case sCompare ps pt of
+     SLT  -> 
           Cons u1 (glueLeft t1 (Cons e2 t2)) where
-                u1 = (withSingI ps (Entry ps so tocc))
-   --             so   = sMakeOpt so1
+                u1 = (Entry ps so tocc)
+                so   = sMakeOpt so1
                 tocc = defocc so1 
-     SGT -> case wfMakeOpt so2 of
-       SomeOcc so ->
+     SGT -> 
          Cons (Entry pt so tocc) (glueLeft (SCons e1 t1) t2) where
-         --        so   = sMakeOpt so2
+                 so   = sMakeOpt so2
                  tocc = weaken so2 ts
 
 glueRight :: List Entry s1 -> Sing s2 -> List Entry (Alt s1 s2)
 glueRight Nil SNil = Nil
-glueRight (Cons  e2@(Entry (pt :: p2 t) so2 ts) t2) SNil =
-  case wfMakeOpt so2 of 
-    SomeOcc o -> Cons (Entry pt so tocc) (glueRight t2 SNil) where
----                 so   = sMakeOpt so2
+glueRight (Cons  e2@(Entry pt so2 ts) t2) SNil =
+    Cons (Entry pt so tocc) (glueRight t2 SNil) where
+                 so   = sMakeOpt so2
                  tocc = weaken so2 ts
 glueRight Nil (SCons (STuple2 ps so) t) =
-  case wfMakeOpt so of
-    SomeOcc so' ->
-      Cons (withSingI ps (Entry ps so' (defocc so))) (glueRight Nil t)
+      Cons (withSingI ps (Entry ps (sMakeOpt so) (defocc so))) (glueRight Nil t)
 
-glueRight (Cons   e1@(Entry (ps :: p1 s) so1 ss)  t1) 
+glueRight (Cons   e1@(Entry ps so1 ss)  t1) 
           (SCons  e2@(STuple2 (pt :: Sing t) so2) t2) =
-  case ((sym @s) %:== pt) of
-   STrue -> case wfMax so1 so2 of
-     SomeOcc so -> Cons (Entry ps so tocc) (glueRight t1 t2) where
-                 -- so   = sMax so1 so2
+  case (ps %:== pt) of
+   STrue -> Cons (Entry ps so tocc) (glueRight t1 t2) where
+                 so   = sMax so1 so2
                  tocc = glueOccRight so1 ss so2 
-   SFalse ->  case sCompare (sym @s) pt of
-     SLT  -> case wfMakeOpt so1 of
-       SomeOcc so -> Cons u1 (glueRight t1 (SCons e2 t2)) where
+   SFalse ->  case sCompare ps pt of
+     SLT  -> Cons u1 (glueRight t1 (SCons e2 t2)) where
                 u1 = (Entry ps so tocc)
-                --so   = sMakeOpt so1
+                so   = sMakeOpt so1
                 tocc = weaken so1 ss
-     SGT -> case wfMakeOpt so2 of
-       SomeOcc so ->
+     SGT -> 
          Cons (withSingI pt (Entry pt so tocc)) (glueRight (Cons e1 t1) t2) where
-         --        so   = sMakeOpt so2
+                 so   = sMakeOpt so2
                  tocc = defocc so2 
           
 
@@ -434,7 +428,7 @@ repeatOcc SMany s = s
 
 repeatList :: List Entry s -> List Entry (Repeat s)
 repeatList  Nil = Nil
-repeatList (Cons (Entry (ps :: p s) o v) t) =
+repeatList (Cons (Entry ps o v) t) =
   Cons (Entry ps SMany (repeatOcc o v)) (repeatList t)
 
 repeatResult :: (SingI s) => Result s -> Result (Repeat s)
@@ -444,8 +438,8 @@ repeatResult (Just x) = Just (repeatList x)
 -------------------------------------------------------------------------
 
 -- eventually in data.record
-class HasField (x :: k) r a | x r -> a where
-  getField    :: r -> a
+class HasFieldD (x :: k) r a | x r -> a where
+  getFieldD    :: r -> a
 
 data Index (s :: Symbol)  (o :: Occ) (m :: U) where
   DH :: Index s o ('(s,o):m)
@@ -477,17 +471,33 @@ instance (Get l) => Get (DT l) where
   getp (Cons _ xs) = getp @_ @_ @_ @l xs
 
 -- Instance for the result
-instance (HasField s (List Entry m) t) => 
-     HasField s (Result m) (Maybe t) where
-  getField (Just x) = Just  (getField @s x)
-  getField Nothing = Nothing
+instance (HasFieldD s (List Entry m) t) => 
+     HasFieldD s (Result m) (Maybe t) where
+  getFieldD (Just x) = Just  (getFieldD @s x)
+  getFieldD Nothing = Nothing
 
 -- Instance for a list of entries
 instance (Get (Find s m :: Index s o m), t ~ TOcc o) =>
-                      HasField s (List Entry m) t where
-  getField x = getp @_ @_ @_ @(Find s m) x
+                      HasFieldD s (List Entry m) t where
+  getFieldD x = getp @_ @_ @_ @(Find s m) x
 
+class HasField n s o | n s -> o where
+  getField :: Maybe (List Entry s) -> [String]
 
+instance (Get (Find n s :: Index n Str s)) =>
+    HasField n s Str where
+  getField (Just x) = [ getp @_ @_ @_ @(Find n s) x ] 
+  getField Nothing  = []
+
+instance (Get (Find n s :: Index n Opt s)) =>
+    HasField n s Opt where
+  getField (Just x) = maybeToList (getp @_ @_ @_ @(Find n s) x)
+  getField Nothing  = []
+
+instance (Get (Find n s :: Index n Many s)) =>
+    HasField n s Many where
+  getField (Just x) = getp @_ @_ @_ @(Find n s) x
+  getField Nothing  = []
 
 
 -------------------------------------------------------------------------
@@ -526,9 +536,9 @@ isVoid _              = False
 
 -- convenience function for marks
 -- MUST use explicit type application for 'sym' to avoid ambiguity
-rmark :: forall sym s. (KnownSymbol sym, WfSet s) =>
-     R s -> R (Merge (One sym) s)
-rmark r = Rmark (sym @sym) "" r
+rmark :: forall n s. (KnownSymbol n, WfSet s) =>
+     R s -> R (Merge (One n) s)
+rmark r = Rmark (sing @Symbol @n) "" r
 
 -- convenience function for single characters
 rchar :: Char -> R Empty
@@ -565,7 +575,7 @@ data R (ss :: U) where
   Rnot   :: Set Char -> R Empty
   Rchar  :: Set Char -> R Empty
   Rmark  :: (KnownSymbol sym, WfSet s) =>
-     proxy sym -> String -> R s -> R (Merge (One sym) s)
+     Sing sym -> String -> R s -> R (Merge (One sym) s)
 
 -- This does not really compare for equality --- the voids get in the way
 instance TestEquality R where
@@ -578,9 +588,9 @@ instance TestEquality R where
   Rstar t1   `testEquality` Rstar u1   |
     Just Refl <- testEquality t1 u1    = Just Refl
   Rchar s1   `testEquality` Rchar s2   | s1 == s2 = Just Refl
-  Rmark (_ :: p1 s) s1 r1 `testEquality` Rmark (_ :: p2 t) s2 r2 |
+  Rmark n1 s1 r1 `testEquality` Rmark n2 s2 r2 |
     s1 == s2,
-    Just Refl <- testEquality (sym @s) (sym @t),
+    Just Refl <- testEquality n1 n2,
     Just Refl <- r1 `testEquality` r2  = Just Refl
   Rvoid      `testEquality` Rvoid      = Nothing    -- have to ignore voids                                     
   _          `testEquality` _          = Nothing
@@ -595,7 +605,7 @@ instance Show (R n) where
   show (Rchar c) = if c == (Set.fromList ['0' .. '9']) then "\\d"
                    else if c == (Set.fromList [' ', '-', '.']) then "\\w"
                    else show c
-  show (Rmark (ps :: p s) w r)  = "/" ++ w ++ "(" ++ show r ++ ")"
+  show (Rmark n w r)  = "/" ++ w ++ "(" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "^" ++ show cs
 ------------------------------------------------------
@@ -610,18 +620,15 @@ match r w = extract (foldl deriv r w)
 -- if the regular expression is nullable
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
-extract :: WfSet s => R s -> Result s
+extract :: forall s. WfSet s => R s -> Result s
 extract Rvoid        = Nothing 
-extract (Rchar cs)   = if Set.null cs then Just Nil else Nothing
+extract (Rchar cs)   = Just Nil 
 extract (Rseq r1 r2) = join (extract r1) (extract r2)
 extract (Ralt r1 r2) = firstSuccess (extract r1) (extract r2)
-extract (Rstar r)    = firstSuccess (Just Nil)   (repeatResult (extract r))
-extract (Rmark (ps :: p s) s r) =
-  if nullable r
-    then join (mark ps s)   (extract r)
-    else join @'[ '(s,Str) ] Nothing (extract r)
-  where
-    mark ps t = Just (Cons (Entry ps SStr t) Nil)
+extract (Rstar r)    = firstSuccess (Just Nil) (fmap repeatList (extract r))
+extract (Rmark n s r) =
+  join mark (extract r) where
+    mark = Just (Entry n SStr s `Cons` Nil)
 extract (Rnot cs)    = if Set.null cs then Nothing else Just Nil
 extract Rany         = Nothing
 
@@ -629,7 +636,7 @@ extract Rany         = Nothing
 -- Can the regexp match the empty string? 
 nullable :: R n -> Bool
 nullable Rvoid          = False
-nullable (Rchar cs)     = Set.null cs
+nullable (Rchar cs)     = True
 nullable (Rseq re1 re2) = nullable re1 && nullable re2
 nullable (Ralt re1 re2) = nullable re1 || nullable re2
 nullable (Rstar re)     = True
@@ -674,81 +681,3 @@ markVoid (Rseq r1 r2)  = Rseq  (markVoid r1) (markVoid r2)
 markVoid (Rstar r)     = Rstar (markVoid r)
 markVoid _             = Rvoid
 
-
-----------------------------------------------------------
-
-r1 = ralt (rchar 'a') (rchar 'b')
-
-r2 = rmark @"a" r1
-
-r4 = rstar (rmark @"b" (rseq r1 r1))
-
-r5 = ralt (rmark @"b" (rchar 'a')) (rmark @"b" (rchar 'b'))
-
-r6 = ralt (rmark @"a" (rchar 'a')) (rmark @"b" (rchar 'b'))
-
-r7 = ralt (rmark @"b" (rchar 'b')) (rmark @"b" (rchar 'b'))
-
-r8 = rmark @"x" (rstar (rchar 'a'))
-
-r9 = rmark @"c" (rseq (rstar (rchar 'c')) r6)
-
-
--------------------------------------------------------------------------
-
-digit = Rchar (Set.fromList ['0' .. '9'])
-dash  = Rchar (Set.fromList ['-','.',' '])
-rsep  = dash
-
-
-opt_dash = ralt dash rempty
-
-rphone = 
-   (digit `rseq` digit `rseq` digit `rseq` opt_dash
-    `rseq` digit `rseq`  digit `rseq` digit `rseq` digit)
-
-alpha  = Rchar (Set.fromList ['a' .. 'z' ])
-alphaC = Rchar (Set.fromList ['A' .. 'Z' ])
-
-rname   = rseq alphaC (rstar alpha)
-
-raddress = rstar digit `rseq` rstar rname
-
-entry  = (rmark @"name" rname) `rseq` rstar opt_dash `rseq` (ralt rempty
-                                                             (rmark @"phone" rphone))
-
-pbook  = rstar (rchar '(' `rseq` (rmark @"entry" entry) `rseq` rchar ')')
-
-pbookstring = "(Steve 123-2222)(Stephanie   1202323)(Ellie)(Sarah 324-3444)"
-
-fullname = rname `rseq` rstar (rchar ' ') `rseq` rname
-
--------------------------------------------------------------------------
-
-result = match pbook pbookstring
-
-
-nm  = getField @"entry" result
-num = getField @"phone" result
-
--- Doesn't type check
---bad = getField @"email" result
-
-
-
-result2 = match entry "Stephanie"
-nm2 = getField @"name" result2
-num2  = getField @"phone" result2
-
--------------------------------------------------------------------------
-
--- difficult pattern for backtracking implementations, like this one.
-difficult = rstar (ralt (rchar 'a') (rchar 'a' `rseq` rchar 'a')) `rseq` (rchar 'b')
-
-sloooow =  match difficult "aaaaaaaaaaaaaaaaaaaaaaaab"
-
-greedy = rstar (rmark @"a" (rchar 'a')
-                `ralt` (rmark @"ab" (rchar 'a' `rseq` rchar 'b'))
-                `ralt` (rmark @"b" (rchar 'b')))
-
-greedytest = match greedy "ab"
