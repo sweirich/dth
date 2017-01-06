@@ -25,7 +25,7 @@
 module RegexpSet where
 
 import Data.Kind (Type)
-import Data.Type.Equality ((:~:)(..))
+import Data.Type.Equality ((:~:)(..), TestEquality(..))
 
 import GHC.TypeLits(TypeError(..),ErrorMessage(..),symbolVal,Symbol(..),KnownSymbol(..))
 import Data.Singletons.Prelude
@@ -73,10 +73,11 @@ type family Union (a :: S) (b :: S) :: S where
 -- Well-founded sets also have singletons (SingI constraints),
 -- which we wouldn't need if Haskell were a full-spectrum
 -- dependently-typed language
-class (s ~ Union s s, SingI s) => Wf (s :: S) where
+class (s ~ Union s s,
+      SingI s) => Wf (s :: S) where
 instance Wf '[] where
 instance (SingI n, Wf s) => Wf (n : s) where
- 
+
 
 ------------------------------------------------------------------------
 -- Shhh! Don't tell anyone!
@@ -84,35 +85,32 @@ instance (SingI n, Wf s) => Wf (n : s) where
 type Π n = Sing n
 
 ------------------------------------------------------------------------
--- A dictionary indexed by a type-level set (the domain)
--- Keeps the entries in the same sorted order as the keys
--- For convenience, we store the names in the data structure, although
--- this is not strictly required.
+-- A dictionary indexed by a type-level set (the potential domain)
 
 type Result (s :: S) = Maybe (Dict s)
 
 data Entry (n :: Symbol) where
    Entry :: Π n -> [String] -> Entry n
-   
+
 data Dict (s :: [Symbol]) where
    Nil  :: Dict '[]
-   (:>) :: Entry n -> Dict tl -> Dict (n : tl) 
+   (:>) :: Entry n -> Dict s -> Dict (n : s)
 
 infixr 5 :>
 
 
 ------
 
-combine :: Dict s1 -> Dict s2 -> Dict (Union s1 s2)
+combine :: forall s1 s2. Dict s1 -> Dict s2 -> Dict (Union s1 s2)
 combine Nil Nil = Nil
-combine Nil b   = b
-combine b   Nil = b
+combine Nil d   = d
+combine d   Nil = d 
 combine (e1@(Entry n1 ss1) :> t1) (e2@(Entry n2 ss2) :> t2) =
   case (n1 %:== n2) of
    STrue ->  Entry n1 (ss1 ++ ss2) :> combine t1 t2     
    SFalse -> case n1 %:<= n2 of
      STrue  -> e1 :> combine t1 (e2 :> t2)
-     SFalse ->  e2 :> combine (e1 :> t1) t2 
+     SFalse -> e2 :> combine (e1 :> t1) t2 
 
 -- A "default" Dict.
 -- [] for each name in the domain of the set
@@ -197,7 +195,7 @@ instance (Get i) => Get (DT i) where
 -- Our GADT for regular expressions
 -- indexed by the set of pattern names
 data R (s :: S) where
-  -- Rempty :: R Empty  -- subsumed by RChar (Set.empty)
+  Rempty :: R Empty  -- subsumed by RChar (Set.empty)
   Rvoid  :: R s         -- always fails, set can be anything 
   Rseq   :: (Wf s1, Wf s2) =>
             R s1 -> R s2 -> R (Union s1 s2)
@@ -257,7 +255,7 @@ rvoid = Rvoid
 
 -- convenience function for empty string
 rempty :: R Empty
-rempty = Rchar Set.empty
+rempty = Rempty
 
 -- convenience function for single characters
 rchar :: Char -> R Empty
@@ -280,8 +278,8 @@ isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
 isEmpty :: R s -> Maybe (s :~: Empty)
-isEmpty (Rchar s) = if Set.null s then Just Refl else Nothing
-isEmpty _         = Nothing
+isEmpty Rempty  = Just Refl
+isEmpty _       = Nothing
 
 ------------------------------------------------------
 
@@ -296,7 +294,8 @@ match r w = extract (foldl' deriv r w)
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
 extract :: forall s. Wf s => R s -> Result s
-extract (Rchar cs)     = Just Nil
+extract Rempty         = Just Nil
+extract (Rchar cs)     = Nothing
 extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
 extract (Ralt r1 r2)   = first (extract r1) (extract r2)
 extract (Rstar r)      = Just $ nils @s
@@ -306,6 +305,7 @@ extract _              = Nothing
 
 -- Can the regexp match the empty string? 
 nullable :: R n -> Bool
+nullable Rempty         = True
 nullable Rvoid          = False
 nullable (Rchar cs)     = True
 nullable (Rseq re1 re2) = nullable re1 && nullable re2
@@ -317,6 +317,7 @@ nullable (Rnot cs)      = False
 
 -- regular expression derivative function
 deriv :: forall s. Wf s => R s -> Char -> R s
+deriv Rempty        c = Rvoid
 deriv (Rseq r1 r2)  c | nullable r1 =
      ralt (rseq (deriv r1 c) r2) 
           (rseq (markEmpty r1) (deriv r2 c))
@@ -342,6 +343,7 @@ markEmpty (Rchar s)     = rempty
 markEmpty Rany          = rempty
 markEmpty (Rnot cs)     = rempty
 markEmpty Rvoid         = Rvoid
+markEmpty Rempty        = Rempty
 
 
 -------------------------------------------------------------------------
@@ -394,12 +396,12 @@ instance Show (Dict s) where
     show' (e :> xs)  = show e ++ "," ++ show' xs
 
 instance Show (R n) where
-  show Rvoid  = "∅"   
+  show Rvoid  = "∅"
+  show Rempty = "ε"                                            
   show (Rseq r1 r2) = show r1 ++ show r2
   show (Ralt r1 r2) = show r1 ++ "|" ++ show r2
   show (Rstar r)    = show r  ++ "*"
   show (Rchar cs) = if (Set.size cs == 1) then (Set.toList cs)
-                   else if Set.size cs == 0 then "ε"                                            
                    else if cs == (Set.fromList ['0' .. '9']) then "\\d"
                    else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
                    else "[" ++ Set.toList cs ++ "]"
@@ -425,6 +427,7 @@ sUnion s1@(n1 `SCons` st1)
 
 -- | All sets that we have singletons for are well-formed
 -- Could replace with unsafeCoerce...
+{-
 withWf :: Sing s -> (Wf s => c) -> c
 withWf ss f = case wfSing ss of
   SomeSet _ -> f
@@ -436,10 +439,11 @@ wfSing :: Sing (s :: S) -> WfD s
 wfSing SNil = SomeSet SNil
 wfSing s@(SCons sn ss) = case wfSing ss of
   SomeSet _ -> withSingI sn $ SomeSet s
-  
+  -}
 -------------------------------------------------------
 -- We can define a monoid instance for Dicts
 
+{-
 instance SingI s => Monoid (Dict s) where
   mempty  = nils
 
@@ -449,6 +453,7 @@ instance SingI s => Monoid (Dict s) where
     mappend' (Entry n1 ss1 :> t1) (Entry _ ss2 :> t2) =
        Entry n1 (ss1 ++ ss2) :> mappend' t1 t2
  
+-}
 
 ------------------------------------------------------------------------  
 -- the Wf constraint rules out "infinite" sets of the form
@@ -460,3 +465,4 @@ testWf = ()
 
 x1 = testWf @'[ "a", "b" ]
 -- x2 = testWf @T   -- doesn't type check
+

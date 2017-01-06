@@ -11,7 +11,6 @@ import Test.HUnit
 
 import Data.Maybe
 
-
 ----------------------------------------------------------
 
 r1 = ralt (rchar 'a') (rchar 'b')
@@ -38,6 +37,8 @@ greedytest = match greedy "ab"
 -- returns Just [a:[],ab:["ab"],b:[]]
 
 
+r10 = (rstar Rany) `rseq` rmark @"a" (rchar 'a')
+
 main = runTestTT $
        TestList [
          "1" ~: assert $ isJust (match r1 "a"),
@@ -57,7 +58,9 @@ main = runTestTT $
          "15" ~: getField @"c" (match r9 "cb") ~?= ["cb"],
          "g1" ~: getField @"a"  greedytest ~?= [],
          "g2" ~: getField @"ab" greedytest ~?= ["ab"],
-         "g3" ~: getField @"b"  greedytest ~?= []
+         "g3" ~: getField @"b"  greedytest ~?= [],
+         "c1" ~: getField @"a" (match r10 "a") ~?= ["a"]
+--         "c2" ~: getField @"b" (match r10 "a") ~?= []
        ]
 
 
@@ -86,11 +89,18 @@ pbookstring = "(Steve 123-2222)(Stephanie 1202323)(Ellie 121.1222)(Sarah 324-344
 result = match pbook pbookstring
 
 
-nm  = getField @"name"  result
-num = getField @"phone" result
+nm = getField @"name"  result
+ph = getField @"phone" result
 
 -- Doesn't type check on enhanced versions
 -- bad = getField @"email" result
+
+-------------------------------------------------------------------------
+-- For RegexpOcc also check out the more refined types that are possible:
+
+--nm2 = getFieldD @"name" $ fromJust (match entry "Stephanie")
+--ph2 = getFieldD @"phone" $ fromJust (match entry "Stephanie")
+
 
 -------------------------------------------------------------------------
 

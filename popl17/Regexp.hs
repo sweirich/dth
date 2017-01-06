@@ -87,12 +87,12 @@ getField Nothing  = []
 ------------------------------------------------------
 -- Our ADT for regular expressions
 data R where
-  -- Rempty :: R   -- subsumed by RChar (Set.empty)
+  Rempty :: R   
   Rvoid  :: R          -- always fails, set can be anything 
   Rseq   :: R -> R -> R
   Ralt   :: R -> R -> R
   Rstar  :: R -> R
-  Rchar  :: Set Char -> R
+  Rchar  :: Set Char -> R  -- must be nonempty set
   Rany   :: R
   Rnot   :: Set Char -> R
   Rmark  :: String -> String -> R -> R
@@ -121,12 +121,16 @@ ralt :: R -> R -> R
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
-ralt (Rnot s1) (Rnot s2)   = Rchar (s1 `Set.intersection` s2)
+ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
 ralt r1 r2                 = Ralt r1 r2
 
 -- convenience function for marks
 rmark :: forall a. KnownSymbol a => R -> R 
 rmark r = Rmark (symbolVal (Proxy :: Proxy a)) "" r
+
+rmarkSing :: KnownSymbol n => proxy n -> R -> R 
+rmarkSing n r = Rmark (symbolVal n) "" r
+
 
 -- r** ~> r*
 -- empty* ~> empty
@@ -141,7 +145,7 @@ rvoid = Rvoid
 
 -- convenience function for empty string
 rempty :: R
-rempty = Rchar Set.empty
+rempty = Rempty
 
 -- convenience function for single characters
 rchar :: Char -> R 
@@ -149,7 +153,7 @@ rchar c = Rchar (Set.singleton c)
 
 -- completeness
 rchars :: Set Char -> R
-rchars s = Rchar s
+rchars s = if Set.null s then error "nonempty!" else Rchar s
 
 
 ------------------------------------------------------
@@ -164,7 +168,7 @@ isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
 isEmpty :: R -> Bool
-isEmpty (Rchar s) = Set.null s
+isEmpty Rempty    = True
 isEmpty _         = False
 
 ------------------------------------------------------
@@ -180,7 +184,8 @@ match r w = extract (foldl' deriv r w)
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
 extract :: R -> Result
-extract (Rchar cs)     = Just Nil
+extract Rempty         = Just Nil
+extract (Rchar cs)     = Nothing
 extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
 extract (Ralt r1 r2)   = first (extract r1) (extract r2)
 extract (Rstar r)      = Just $ nils
@@ -190,8 +195,9 @@ extract _              = Nothing
 
 -- Can the regexp match the empty string? 
 nullable :: R -> Bool
+nullable Rempty         = True
 nullable Rvoid          = False
-nullable (Rchar cs)     = True
+nullable (Rchar cs)     = False
 nullable (Rseq re1 re2) = nullable re1 && nullable re2
 nullable (Ralt re1 re2) = nullable re1 || nullable re2
 nullable (Rstar re)     = True
@@ -200,7 +206,8 @@ nullable (Rany)         = False
 nullable (Rnot cs)      = False
 
 -- regular expression derivative function
-deriv :: R -> Char -> R 
+deriv :: R -> Char -> R
+deriv Rempty        c = Rvoid
 deriv (Rseq r1 r2)  c | nullable r1 =
      ralt (rseq (deriv r1 c) r2) 
           (rseq (markEmpty r1) (deriv r2 c))
@@ -225,6 +232,7 @@ markEmpty (Rstar r)     = markEmpty r
 markEmpty (Rchar s)     = rempty
 markEmpty Rany          = rempty
 markEmpty (Rnot cs)     = rempty
+markEmpty Rempty        = rempty
 markEmpty Rvoid         = Rvoid
 
 
@@ -265,16 +273,16 @@ instance Show Dict  where
     show' (e :> xs)  = show e ++ "," ++ show' xs
 
 instance Show R  where
+  show Rempty = "ε"                                            
   show Rvoid  = "∅"   
   show (Rseq r1 r2) = show r1 ++ show r2
   show (Ralt r1 r2) = show r1 ++ "|" ++ show r2
   show (Rstar r)    = show r  ++ "*"
   show (Rchar cs) = if (Set.size cs == 1) then (Set.toList cs)
-                   else if Set.size cs == 0 then "ε"                                            
                    else if cs == (Set.fromList ['0' .. '9']) then "\\d"
                    else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
                    else "[" ++ Set.toList cs ++ "]"
-  show (Rmark pn w r)  = "(?P<" ++ show pn ++ ">" ++ show r ++ ")"
+  show (Rmark n w r)  = "(?P<" ++ n ++ ":" ++ w ++ ">" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "[^" ++ show cs ++ "]"
 
