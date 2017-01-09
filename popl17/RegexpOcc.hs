@@ -80,8 +80,8 @@ $(singletons [d|
 
   alt :: [(Symbol,Occ)] -> [(Symbol,Occ)] -> [(Symbol,Occ)]
   alt [] [] = []
-  alt ((s1,o1):t1) [] = (s1,makeOpt o1) : alt t1 []
-  alt [] ((s2,o2):t2) = (s2,makeOpt o2) : alt [] t2
+  alt ((s1,o1):t1) [] = (s1,makeOpt o1): alt t1 []
+  alt [] ((s2,o2):t2) = (s2,makeOpt o2): alt [] t2
   alt ((s1,o1):t1)((s2,o2):t2) =
       if s1 == s2 then (s1, max o1 o2) : alt t1 t2
       else if s1 <= s2 then (s1,makeOpt o1) : alt t1 ((s2,o2):t2)
@@ -147,23 +147,26 @@ type family TOcc (o :: Occ) :: Type where
   TOcc Opt  = Maybe String
   TOcc Many = [String]
 
-data Entry (sym ::(Symbol,Occ)) where
+data Entry (no :: (Symbol,Occ) ) where
    Entry :: Sing (s :: Symbol) -> Sing o -> TOcc o -> Entry '(s,o)                                                                          
 data Dict (s :: U) where
    Nil  :: Dict '[]
    (:>) :: Entry a -> Dict tl -> Dict (a : tl)
 
-------
--- show instance
+infixr 5 :>
+
+-------------------------------------------------------------------------
+-- show instances
+
 instance Show (Sing (n :: Symbol)) where
   show ps@SSym = symbolVal ps
 
 instance Show (Entry s) where
-  show (Entry sn so ss) = show sn ++ "=" ++ showOcc so ss where
-    showOcc :: Sing o -> TOcc o -> String
-    showOcc SStr  ss = ss
-    showOcc SOpt  ss = show ss
-    showOcc SMany ss = show ss
+  show (Entry sn so ss) = show sn ++ "=" ++ showData so ss where
+    showData :: Sing o -> TOcc o -> String
+    showData SStr  ss = ss
+    showData SOpt  ss = show ss
+    showData SMany ss = show ss
 
 instance Show (Dict s) where
   show xs = "{" ++ show' xs where
@@ -172,23 +175,14 @@ instance Show (Dict s) where
     show' (e :> Nil) = show e ++ "}"
     show' (e :> xs)  = show e ++ "," ++ show' xs
 
-showOcc :: Sing o -> TOcc o -> String
-showOcc SStr  s = s
-showOcc SOpt  s = show s
-showOcc SMany s = show s
 ------
 
-
 toMany :: Sing o -> TOcc o -> [String]
-toMany SStr s = [s]
-toMany SOpt (Just s) = [s]
-toMany SOpt Nothing  = []
-toMany SMany ss = ss
+toMany SStr  s        = [s]
+toMany SOpt  (Just s) = [s]
+toMany SOpt  Nothing  = []
+toMany SMany ss       = ss
 
--- if s1 == s2 then this is "mappend" for the Dict monoid
--- (but, not the usual list monoid, the one where we glue each element
--- together pointwise)
--- this is *almost* sMerge, but it works with entries, not singleton symbols
 combine :: Dict s1 -> Dict s2 -> Dict (Merge s1 s2)
 combine Nil Nil = Nil
 combine Nil b = b
@@ -196,18 +190,49 @@ combine b Nil = b
 combine (e1@(Entry ps so1 ss) :> t1)
         (e2@(Entry pt so2 ts) :> t2) =
   case (ps %:== pt) of
-   STrue ->  (Entry ps SMany (toMany so1 ss ++ toMany so2 ts)) :>
-                           (combine t1 t2)     
-   SFalse -> case sCompare ps pt of
-     SLT  -> e1 :> (combine t1 (e2 :> t2))
-     SGT ->  e2 :> (combine (e1 :> t1) t2) 
+   STrue -> Entry ps SMany (toMany so1 ss ++ toMany so2 ts) :> combine t1 t2     
+   SFalse -> case ps %:<= pt of
+     STrue  -> e1 :> combine t1 (e2 :> t2)
+     SFalse -> e2 :> combine (e1 :> t1) t2 
 
 -- combine the two sets together
 both :: Result s1 -> Result s2 -> Result (Merge s1 s2)
-both xss yss = do
-  xs <- xss
-  ys <- yss
-  return $ combine xs ys
+both (Just xs) (Just ys) = Just $ combine xs ys
+both _         _         = Nothing
+
+
+-- A "default" Dict.
+-- [] for each name in the domain of the set
+-- Needs a runtime representation of the set for construction
+{-
+nilsOpt :: forall s. (Wf s, SingI s) => Dict (OptU s)
+nilsOpt = nils' (sing :: Sing s) where 
+    nils' :: Sing ss -> Dict (OptU ss)
+    nils' SNil                        = Nil
+    nils' (SCons (STuple2 n SMany) r) = Entry n SMany [] :> nils' r
+    nils' (SCons (STuple2 n SOpt ) r) = Entry n SOpt  Nothing :> nils' r
+    nils' (SCons (STuple2 n SStr ) r) = Entry n SOpt  Nothing :> nils' r
+
+maxEntry :: Entry '(n,o1) -> Entry '(n,o2) -> Entry '(n, Max o1 o2)
+maxEntry = undefined
+maxEntry (Entry ps SStr ss) (Entry _ SStr ts) = Entry ps SMany (ss ++ ts)
+maxEntry (Entry ps SStr ss) (Entry _ SOpt ts) = Entry ps SMany
+maxEntry (Entry ps SOpt ss) (Entry _ SStr ts) = Entry ps S
+maxEntry (Entry ps SStr ss) (Entry _ SMany ts) = Entry ps SMany
+maxEntry (Entry ps SMany ss) (Entry _ SStr ts) = Entry ps SMany
+
+altDict :: forall s1 s2. Dict s1 -> Dict s2 -> Dict (Alt s1 s2)
+altDict Nil Nil = Nil
+altDict Nil b = nilsOpt @s2
+altDict b Nil = nilOpt  @s1
+altDict (e1@(Entry ps so1 ss) :> t1)
+        (e2@(Entry pt so2 ts) :> t2) =
+  case (ps %:== pt) of
+   STrue -> maxEntry e1 e2 :> altDict t1 t2     
+   SFalse -> case ps %:<= pt of
+     STrue  -> e1 :> altDict t1 (e2 :> t2)
+     SFalse -> e2 :> altDict (e1 :> t1) t2 
+-}
 
 defocc :: Sing o -> TOcc (MakeOpt o)
 defocc SStr  = Nothing    
@@ -307,10 +332,13 @@ first Nothing Nothing  = Nothing
 first Nothing (Just y) = Just (glueLeft (sing @U @s1) y)
 first (Just x) _       = Just (glueRight x (sing @U @s2))
 
+-- A "default" Dict.
+-- [] for each name in the domain of the set
+-- Needs a runtime representation of the set for construction
 nils :: forall s. (Wf s, SingI (Repeat s)) => Dict (Repeat s)
 nils = nils' (sing :: Sing (Repeat s)) where 
     nils' :: Sing ss -> Dict (Repeat ss)
-    nils' SNil        = Nil
+    nils' SNil                        = Nil
     nils' (SCons (STuple2 n _) r) = Entry n SMany [] :> nils' r
   
 -------------------------------------------------------------------------
@@ -371,64 +399,58 @@ instance (SingI o, (Get (Find n s :: Index n o s))) => HasField n (Result s) [St
      gg SMany s = s
   getField Nothing  = [] 
 
+-------------------------------------------------------------------------
+
+-- Our GADT, indexed by the set of pattern variables
+-- Note that we require all sets to be Wf. (Empty is known to be.)
+data R (s :: U) where
+  Rempty :: R Empty 
+  Rvoid  :: R s  
+  Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
+  Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt   s1 s2)
+  Rstar  :: (Wf s) => R s  -> R (Repeat s)
+  Rchar  :: Set Char -> R Empty
+  Rany   :: R Empty
+  Rnot   :: Set Char -> R Empty
+  Rmark  :: (Wf s) => Sing sym -> String -> R s -> R (Merge (One sym) s)
 
 -------------------------------------------------------------------------
 -- smart constructors
 -- we might as well optimize the regular expression whenever we
 -- build it.  
 
--- smart constructor -- optimizes on construction
--- reduces: r + r to just r
-ralt :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
---ralt Rvoid r = r   --doesn't type check
---ralt r Rvoid = r   --doesn't type check
-ralt (Rchar s1) (Rchar s2) = Rchar (Set.union s1 s2)
-ralt r1 r2 = Ralt r1 r2
 
 -- reduces (r,epsilon) (epsilon,r) to just r
--- and r*r* to r*
--- our abstraction won't let us optimize (r,void) -> void though
--- it doesn't know that the matches in r cannot occur.
-rseq :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
-rseq (Rchar s) r2 | Set.null s = r2
-rseq r1 (Rchar s) | Set.null s = r1
---rseq (Rstar r1) (Rstar r2) | Just Refl <- r1 `testEquality` r2 = (Rstar r1)
+-- (r,void) and (void,r) to void
+rseq :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
+rseq r1 r2 | Just Refl <- isEmpty r1 = r2
+rseq r1 r2 | Just Refl <- isEmpty r2 = r1
 rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
+ralt :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
+ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
+ralt Rany       (Rchar s ) = Rany
+ralt (Rchar s)  Rany       = Rany
+ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
+ralt r1 r2 = Ralt r1 r2
 
-isVoid :: R s1 -> Bool
-isVoid Rvoid          = True
-isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
-isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
-isVoid (Rstar r)      = isVoid r
-isVoid (Rmark ps s r) = isVoid r
-isVoid _              = False
 
 -- convenience function for marks
 -- MUST use explicit type application for 'sym' to avoid ambiguity
-rmark :: forall n s. (KnownSymbol n, Wf s) =>
-     R s -> R (Merge (One n) s)
+rmark :: forall n s. (KnownSymbol n, Wf s) => R s -> R (Merge (One n) s)
 rmark r = rmarkSing (sing @Symbol @n) r
 
 rmarkSing :: forall n s proxy.
    (KnownSymbol n, Wf s) => proxy n -> R s -> R (Merge (One n) s)
 rmarkSing n r = Rmark (sing @Symbol @n) "" r
 
--- convenience function for single characters
-rchar :: Char -> R Empty
-rchar c = Rchar (Set.singleton c)
-
-
-rchars :: Set Char -> R Empty
-rchars s = Rchar s
-
 -- r** = r*
 -- empty* = empty
 rstar :: (Wf s) => R s -> R (Repeat s)
 rstar (Rstar s) = Rstar s
-rstar r@(Rchar s) | Set.null s = r
+rstar r | Just Refl <- isEmpty r = r
 rstar s = Rstar s
 
 -- this needs to have this type to make inference work
@@ -438,54 +460,43 @@ rvoid = Rvoid
 rempty :: R Empty
 rempty = Rempty
 
--- Our GADT, indexed by the set of pattern variables
--- Note that we require all sets to be Wf. (Empty is known to be.)
-data R (ss :: U) where
-  Rempty :: R Empty 
-  Rvoid  :: R s  -- try adding a singleton here to pin down s
-                 -- can be anything b/c will always fail
-  Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
-  Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt   s1 s2)
-  Rstar  :: (Wf s) => R s  -> R (Repeat s)
-  Rany   :: R Empty
-  Rnot   :: Set Char -> R Empty
-  Rchar  :: Set Char -> R Empty
-  Rmark  :: (KnownSymbol sym, Wf s) =>
-     Sing sym -> String -> R s -> R (Merge (One sym) s)
+-- convenience function for single characters
+rchar :: Char -> R Empty
+rchar c = Rchar (Set.singleton c)
+
+rchars :: Set Char -> R Empty
+rchars s = Rchar s
 
 
--- extract the result from the regular expression
+------------------------------------------------------
+isVoid :: R s -> Bool
+isVoid Rvoid          = True
+isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
+isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
+isVoid (Rstar r)      = isVoid r
+isVoid (Rmark ps s r) = isVoid r
+isVoid _              = False
+
+-- is this the regexp that accepts only the empty string?
+isEmpty :: R s -> Maybe (s :~: Empty)
+isEmpty Rempty  = Just Refl
+isEmpty _       = Nothing
+
+
+markResult :: Sing n -> String -> Result (One n)
+markResult n s = Just (Entry n SStr s :> Nil)
+
+-- | extract the result from the regular expression
 -- if the regular expression is nullable
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
 extract :: forall s. Wf s => R s -> Result s
 extract Rempty       = Just Nil
-extract Rvoid        = Nothing 
 extract (Rchar cs)   = Nothing 
 extract (Rseq r1 r2) = both (extract r1) (extract r2)
 extract (Ralt r1 r2) = first (extract r1) (extract r2)
 extract (Rstar r)    = Just $ nils @s
-extract (Rmark n s r) =
-  both mark (extract r) where
-    mark = Just (Entry n SStr s :> Nil)
+extract (Rmark n s r) = both (markResult n s) (extract r)
 extract (Rnot cs)    = if Set.null cs then Nothing else Just Nil
-extract Rany         = Nothing
+extract _            = Nothing
 
-{-
--- displaying regular expressions  
-instance Show (Sing (n :: Symbol)) where
-  show ps@SSym = symbolVal ps
-
-instance Show (R n) where
-  show Rempty = "ε"
-  show Rvoid  = "∅"   
-  show (Rseq r1 r2) = show r1 ++ show r2
-  show (Ralt r1 r2) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")"
-  show (Rstar r)    = "(" ++ show r  ++ ")*"
-  show (Rchar c) = if c == (Set.fromList ['0' .. '9']) then "\\d"
-                   else if c == (Set.fromList [' ', '-', '.']) then "\\w"
-                   else "[" ++ Set.toList c ++ "]"
-  show (Rmark n w r)  = "(?P<" ++ show n ++ ":" ++ w ++ ">" ++ show r ++ ")"
-  show (Rany) = "."
-  show (Rnot cs) = "[^" ++ show cs ++ "]"
--}

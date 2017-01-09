@@ -92,25 +92,49 @@ type Result (s :: S) = Maybe (Dict s)
 data Entry (n :: Symbol) where
    Entry :: Π n -> [String] -> Entry n
 
-data Dict (s :: [Symbol]) where
-   Nil  :: Dict '[]
-   (:>) :: Entry n -> Dict s -> Dict (n : s)
+data Dict (s :: S) where
+   Nil   :: Dict '[]
+   (:>)  :: Entry n -> Dict s -> Dict (n : s)
 
 infixr 5 :>
+
+-------------------------------------------------------------------------
+-- Show instances
+
+instance Show (Sing (n :: Symbol)) where
+  show ps@SSym = symbolVal ps
+
+instance Show (Entry s) where
+  show (Entry sn ss) = show sn ++ "=" ++ show ss where
+
+instance Show (Dict s) where
+  show xs = "{" ++ show' xs where
+    show' :: Dict xs -> String
+    show' Nil = "}"
+    show' (e :> Nil) = show e ++ "}"
+    show' (e :> xs)  = show e ++ "," ++ show' xs
 
 
 ------
 
-combine :: forall s1 s2. Dict s1 -> Dict s2 -> Dict (Union s1 s2)
+
+combine :: Dict s1 -> Dict s2 -> Dict (Union s1 s2)
 combine Nil Nil = Nil
 combine Nil d   = d
 combine d   Nil = d 
-combine (e1@(Entry n1 ss1) :> t1) (e2@(Entry n2 ss2) :> t2) =
+combine (e1@(Entry n1 ss1) :> t1)
+        (e2@(Entry n2 ss2) :> t2) =
   case (n1 %:== n2) of
    STrue ->  Entry n1 (ss1 ++ ss2) :> combine t1 t2     
    SFalse -> case n1 %:<= n2 of
      STrue  -> e1 :> combine t1 (e2 :> t2)
      SFalse -> e2 :> combine (e1 :> t1) t2 
+
+-- | Combine two results together, combining their lists (if present)
+-- If either result fails, return Nothing
+both :: Result s1 -> Result s2 -> Result (Union s1 s2)
+both (Just xs) (Just ys) = Just $ combine xs ys
+both _         _         = Nothing
 
 -- A "default" Dict.
 -- [] for each name in the domain of the set
@@ -121,11 +145,6 @@ nils = nils' sing where
     nils' SNil        = Nil
     nils' (SCons n r) = Entry n [] :> nils' r
 
--- | Combine two results together, combining their lists (if present)
--- If either result fails, return Nothing
-both :: Result s1 -> Result s2 -> Result (Union s1 s2)
-both (Just xs) (Just ys) = Just $ combine xs ys
-both _         _         = Nothing
 
 
 -- | Combine two results together, taking the first successful one
@@ -195,17 +214,15 @@ instance (Get i) => Get (DT i) where
 -- Our GADT for regular expressions
 -- indexed by the set of pattern names
 data R (s :: S) where
-  Rempty :: R Empty  -- subsumed by RChar (Set.empty)
-  Rvoid  :: R s         -- always fails, set can be anything 
-  Rseq   :: (Wf s1, Wf s2) =>
-            R s1 -> R s2 -> R (Union s1 s2)
-  Ralt   :: (Wf s1, Wf s2) =>
-            R s1 -> R s2 -> R (Union s1 s2)
+  Rempty :: R Empty   
+  Rvoid  :: R s       
+  Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Union s1 s2)
+  Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Union s1 s2)
   Rstar  :: (Wf s) => R s -> R s
   Rchar  :: (Set Char) -> R Empty
   Rany   :: R Empty
   Rnot   :: Set Char -> R Empty
-  Rmark  :: (Wf s) => Π n -> String -> R s -> R (Union (One n) s)
+  Rmark  :: (Wf s) => Sing n -> String -> R s -> R (Union (One n) s)
 
 
 -------------------------------------------------------------------------
@@ -217,30 +234,29 @@ data R (s :: S) where
 
 -- reduces (r,epsilon) (epsilon,r) to r
 -- (r,void) and (void,r) to void
-rseq :: (Wf s1, Wf s2) =>
-        R s1 -> R s2 -> R (Union s1 s2)
+rseq :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Union s1 s2)
 rseq r1 r2 | Just Refl <- isEmpty r1 = r2
 rseq r1 r2 | Just Refl <- isEmpty r2 = r1
 rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
--- Construct an alternative, doesn't do any optimization
-ralt :: (Wf s1, Wf s2) =>
-        R s1 -> R s2 -> R (Union s1 s2)
---ralt r1 r2 | isVoid r1 = r2  -- cannot do this because Void may be "remembering" some names
---ralt r1 r2 | isVoid r2 = r1
+ralt :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Union s1 s2)
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
-ralt (Rnot s1) (Rnot s2)   = Rchar (s1 `Set.intersection` s2)
+ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
 ralt r1 r2                 = Ralt r1 r2
 
 -- convenience function for marks
 -- MUST use scoped type variables and
 -- explicit type application for 'n' to avoid ambiguity
 rmark :: forall n s. (KnownSymbol n, Wf s) => R s -> R (Union (One n) s)
-rmark r = Rmark (sing @Symbol @n) "" r
+rmark r = rmarkSing (sing @Symbol @n) r
+
+rmarkSing :: forall n s proxy.
+   (KnownSymbol n, Wf s) => proxy n -> R s -> R (Union (One n) s)
+rmarkSing n r = Rmark (sing @Symbol @n) "" r
 
 -- r** ~> r*
 -- empty* ~> empty
@@ -280,20 +296,10 @@ isEmpty :: R s -> Maybe (s :~: Empty)
 isEmpty Rempty  = Just Refl
 isEmpty _       = Nothing
 
+markResult :: Sing n -> String -> Result (One n)
+markResult n s = Just (Entry n [s] :> Nil)
 
--- | Extract the result from the regular expression
--- if the regular expression is nullable
--- even if the regular expression is not nullable, there
--- may be some subexpressions that were matched, so return those
-extract :: forall s. Wf s => R s -> Result s
-extract Rempty         = Just Nil
-extract (Rchar cs)     = Nothing
-extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
-extract (Ralt r1 r2)   = first (extract r1) (extract r2)
-extract (Rstar r)      = Just $ nils @s
-extract (Rmark n s r)  = both mark (extract r) where
-      mark = Just (Entry n [s] :> Nil)
-extract _              = Nothing
+
 
 
 
@@ -365,38 +371,7 @@ rinit r s | nullable r  = Just ([], s)
 
 
 
--------------------------------------------------------------------------
--- Show instances
 
-
-instance Show (Sing (n :: Symbol)) where
-  show ps@SSym = symbolVal ps
-
-instance Show (Entry s) where
-  show (Entry sn ss) = show sn ++ "=" ++ show ss where
-
-instance Show (Dict s) where
-  show xs = "{" ++ show' xs where
-    show' :: Dict xs -> String
-    show' Nil = "}"
-    show' (e :> Nil) = show e ++ "}"
-    show' (e :> xs)  = show e ++ "," ++ show' xs
-
-{-
-instance Show (R n) where
-  show Rvoid  = "∅"
-  show Rempty = "ε"                                            
-  show (Rseq r1 r2) = show r1 ++ show r2
-  show (Ralt r1 r2) = show r1 ++ "|" ++ show r2
-  show (Rstar r)    = show r  ++ "*"
-  show (Rchar cs) = if (Set.size cs == 1) then (Set.toList cs)
-                   else if cs == (Set.fromList ['0' .. '9']) then "\\d"
-                   else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
-                   else "[" ++ Set.toList cs ++ "]"
-  show (Rmark pn w r)  = "(?P<" ++ show pn ++ ">" ++ show r ++ ")"
-  show (Rany) = "."
-  show (Rnot cs) = "[^" ++ show cs ++ "]"
--}
 -------------------------------------------------------------------------
 
 -- | Singleton version of union function (not used here)
