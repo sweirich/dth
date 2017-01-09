@@ -236,28 +236,6 @@ markEmpty Rempty        = rempty
 markEmpty Rvoid         = Rvoid
 
 
--------------------------------------------------------------------------
-
-startsWith :: R -> String -> Bool
-startsWith r s = nullable r || not (null (fst (rinit r s)))
-
-rinit :: R -> String -> (String, String)
-rinit r (x:xs) = let r' = deriv r x in
-                 if isVoid r' then ("", x:xs) else
-                   case rinit r' xs of
-                     (hd,tl) -> (x:hd, tl)                     
-rinit r [] = ("","") 
-
-ccons :: a -> [[a]] -> [[a]]
-ccons x []     = (x:[]):[]
-ccons x (y:ys) = (x:y) :ys
-
-split :: R -> String -> [String]
-split r [] = []
-split r s@(x:xs) = case rinit r s of
-  ("",_)  -> ccons x (split r xs)
-  (ys,zs) -> [] : split r zs
-
 
 -------------------------------------------------------------------------
 -- Show instances

@@ -4,7 +4,7 @@
 -- | some simple unit test cases for the regular expression module (no parser)
 module RegexpTest where
 
-import RegexpOcc
+import RegexpDependent
 import qualified Data.Set as Set
 
 import Test.HUnit

@@ -8,7 +8,6 @@
     MultiParamTypeClasses, ConstraintKinds #-}
 
 {-# OPTIONS_GHC -fdefer-type-errors #-}
-{-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
 module RegexpOcc where
@@ -115,14 +114,14 @@ class (m ~ Alt m m,
        Repeat m ~ Merge (Repeat m) (Repeat m),
        -- they also have runtime representations
        SingI m) =>
-       WfSet (m :: U) where
+       Wf (m :: U) where
 --       singSet :: SingSet m
 
 -- note the superclass constraint is proved automatically
 -- by Haskell's type class resolution 
-instance WfSet '[] where
+instance Wf '[] where
 --   singSet = WNil
-instance (SingI a, WfOcc o, WfSet s) => WfSet ('(a,o) : s) where
+instance (SingI a, WfOcc o, Wf s) => Wf ('(a,o) : s) where
 --   singSet = WCons sing sing singSet
 
 -- this constraint rules out "infinite" sets of the form
@@ -130,7 +129,7 @@ instance (SingI a, WfOcc o, WfSet s) => WfSet ('(a,o) : s) where
 type family T :: U where
   T = '("a", Str) : T
 
-testWf :: WfSet a => ()
+testWf :: Wf a => ()
 testWf = ()
 
 -- x1 = testWf @'[ '("a", Str), '("b", Str), '("c", Many) ]
@@ -156,6 +155,8 @@ data Dict (s :: U) where
 
 ------
 -- show instance
+instance Show (Sing (n :: Symbol)) where
+  show ps@SSym = symbolVal ps
 
 instance Show (Entry s) where
   show (Entry sn so ss) = show sn ++ "=" ++ showOcc so ss where
@@ -202,12 +203,11 @@ combine (e1@(Entry ps so1 ss) :> t1)
      SGT ->  e2 :> (combine (e1 :> t1) t2) 
 
 -- combine the two sets together
-join :: Result s1 -> Result s2 -> Result (Merge s1 s2)
-join xss yss = do
+both :: Result s1 -> Result s2 -> Result (Merge s1 s2)
+both xss yss = do
   xs <- xss
   ys <- yss
   return $ combine xs ys
-
 
 defocc :: Sing o -> TOcc (MakeOpt o)
 defocc SStr  = Nothing    
@@ -298,33 +298,20 @@ glueRight ( e1@(Entry ps so1 ss) :> t1)
                  so   = sMakeOpt so2
                  tocc = defocc so2 
           
-
-
-
 -- take the first successful result
 -- note that we need to merge in empty labels for the ones that may
 -- not be present in the successful version
-firstSuccess :: forall s1 s2. (SingI s1, SingI s2) =>
+first :: forall s1 s2. (SingI s1, SingI s2) =>
                       Result s1 -> Result s2 -> Result (Alt s1 s2)
-firstSuccess Nothing Nothing  = Nothing                   
-firstSuccess Nothing (Just y) = Just (glueLeft (sing @U @s1) y)
-firstSuccess (Just x) _       = Just (glueRight x (sing @U @s2))
+first Nothing Nothing  = Nothing                   
+first Nothing (Just y) = Just (glueLeft (sing @U @s1) y)
+first (Just x) _       = Just (glueRight x (sing @U @s2))
 
-
-repeatOcc :: Sing o -> TOcc o -> TOcc Many
-repeatOcc SStr s = [s]
-repeatOcc SOpt (Just s) = [s]
-repeatOcc SOpt Nothing = []
-repeatOcc SMany s = s
-
-repeatList :: Dict s -> Dict (Repeat s)
-repeatList  Nil = Nil
-repeatList ((Entry ps o v) :> t) =
-   (Entry ps SMany (repeatOcc o v)) :> (repeatList t)
-
-repeatResult :: (SingI s) => Result s -> Result (Repeat s)
-repeatResult Nothing = Nothing
-repeatResult (Just x) = Just (repeatList x)
+nils :: forall s. (Wf s, SingI (Repeat s)) => Dict (Repeat s)
+nils = nils' (sing :: Sing (Repeat s)) where 
+    nils' :: Sing ss -> Dict (Repeat ss)
+    nils' SNil        = Nil
+    nils' (SCons (STuple2 n _) r) = Entry n SMany [] :> nils' r
   
 -------------------------------------------------------------------------
 
@@ -392,7 +379,7 @@ instance (SingI o, (Get (Find n s :: Index n o s))) => HasField n (Result s) [St
 
 -- smart constructor -- optimizes on construction
 -- reduces: r + r to just r
-ralt :: forall s1 s2. (WfSet s1, WfSet s2) => R s1 -> R s2 -> R (Alt s1 s2)
+ralt :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
 --ralt Rvoid r = r   --doesn't type check
 --ralt r Rvoid = r   --doesn't type check
 ralt (Rchar s1) (Rchar s2) = Rchar (Set.union s1 s2)
@@ -402,13 +389,14 @@ ralt r1 r2 = Ralt r1 r2
 -- and r*r* to r*
 -- our abstraction won't let us optimize (r,void) -> void though
 -- it doesn't know that the matches in r cannot occur.
-rseq :: forall s1 s2. (WfSet s1, WfSet s2) => R s1 -> R s2 -> R (Merge s1 s2)
+rseq :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
 rseq (Rchar s) r2 | Set.null s = r2
 rseq r1 (Rchar s) | Set.null s = r1
 --rseq (Rstar r1) (Rstar r2) | Just Refl <- r1 `testEquality` r2 = (Rstar r1)
 rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
+
 
 isVoid :: R s1 -> Bool
 isVoid Rvoid          = True
@@ -420,11 +408,12 @@ isVoid _              = False
 
 -- convenience function for marks
 -- MUST use explicit type application for 'sym' to avoid ambiguity
-rmark :: forall n s. (KnownSymbol n, WfSet s) =>
+rmark :: forall n s. (KnownSymbol n, Wf s) =>
      R s -> R (Merge (One n) s)
 rmark r = rmarkSing (sing @Symbol @n) r
 
-rmarkSing :: forall n s proxy. (KnownSymbol n, WfSet s) => proxy n -> R s -> R (Merge (One n) s)
+rmarkSing :: forall n s proxy.
+   (KnownSymbol n, Wf s) => proxy n -> R s -> R (Merge (One n) s)
 rmarkSing n r = Rmark (sing @Symbol @n) "" r
 
 -- convenience function for single characters
@@ -437,7 +426,7 @@ rchars s = Rchar s
 
 -- r** = r*
 -- empty* = empty
-rstar :: (WfSet s) => R s -> R (Repeat s)
+rstar :: (Wf s) => R s -> R (Repeat s)
 rstar (Rstar s) = Rstar s
 rstar r@(Rchar s) | Set.null s = r
 rstar s = Rstar s
@@ -455,17 +444,34 @@ data R (ss :: U) where
   Rempty :: R Empty 
   Rvoid  :: R s  -- try adding a singleton here to pin down s
                  -- can be anything b/c will always fail
-  Rseq   :: (WfSet s1, WfSet s2) => R s1 -> R s2 -> R (Merge s1 s2)
-  Ralt   :: (WfSet s1, WfSet s2) => R s1 -> R s2 -> R (Alt   s1 s2)
-  Rstar  :: (WfSet s) => R s  -> R (Repeat s)
+  Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
+  Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt   s1 s2)
+  Rstar  :: (Wf s) => R s  -> R (Repeat s)
   Rany   :: R Empty
   Rnot   :: Set Char -> R Empty
   Rchar  :: Set Char -> R Empty
-  Rmark  :: (KnownSymbol sym, WfSet s) =>
+  Rmark  :: (KnownSymbol sym, Wf s) =>
      Sing sym -> String -> R s -> R (Merge (One sym) s)
 
 
+-- extract the result from the regular expression
+-- if the regular expression is nullable
+-- even if the regular expression is not nullable, there
+-- may be some subexpressions that were matched, so return those
+extract :: forall s. Wf s => R s -> Result s
+extract Rempty       = Just Nil
+extract Rvoid        = Nothing 
+extract (Rchar cs)   = Nothing 
+extract (Rseq r1 r2) = both (extract r1) (extract r2)
+extract (Ralt r1 r2) = first (extract r1) (extract r2)
+extract (Rstar r)    = Just $ nils @s
+extract (Rmark n s r) =
+  both mark (extract r) where
+    mark = Just (Entry n SStr s :> Nil)
+extract (Rnot cs)    = if Set.null cs then Nothing else Just Nil
+extract Rany         = Nothing
 
+{-
 -- displaying regular expressions  
 instance Show (Sing (n :: Symbol)) where
   show ps@SSym = symbolVal ps
@@ -482,80 +488,4 @@ instance Show (R n) where
   show (Rmark n w r)  = "(?P<" ++ show n ++ ":" ++ w ++ ">" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "[^" ++ show cs ++ "]"
-------------------------------------------------------
-
--- matching using derivatives
--- we compute the derivative for each letter, then
--- extract the data structure stored in the regexp
-match :: WfSet s => R s -> String -> Result s
-match r w = extract (foldl deriv r w)
-
--- extract the result from the regular expression
--- if the regular expression is nullable
--- even if the regular expression is not nullable, there
--- may be some subexpressions that were matched, so return those
-extract :: forall s. WfSet s => R s -> Result s
-extract Rempty       = Just Nil
-extract Rvoid        = Nothing 
-extract (Rchar cs)   = Nothing 
-extract (Rseq r1 r2) = join (extract r1) (extract r2)
-extract (Ralt r1 r2) = firstSuccess (extract r1) (extract r2)
-extract (Rstar r)    = firstSuccess (Just Nil) (fmap repeatList (extract r))
-extract (Rmark n s r) =
-  join mark (extract r) where
-    mark = Just (Entry n SStr s :> Nil)
-extract (Rnot cs)    = if Set.null cs then Nothing else Just Nil
-extract Rany         = Nothing
-
-
--- Can the regexp match the empty string? 
-nullable :: R n -> Bool
-nullable Rempty         = True
-nullable Rvoid          = False
-nullable (Rchar cs)     = False
-nullable (Rseq re1 re2) = nullable re1 && nullable re2
-nullable (Ralt re1 re2) = nullable re1 || nullable re2
-nullable (Rstar re)     = True
-nullable (Rmark _ _ r)  = nullable r
-nullable Rany           = False
-nullable (Rnot cs)      = not (Set.null cs)
-
--- regular expression derivative function
-deriv :: forall n. WfSet n => R n -> Char -> R n
-deriv Rempty       c   = Rvoid
-deriv (Rchar s)    c   = if Set.member c s then rempty else Rvoid
-deriv (Rseq r1 r2) c | nullable r1 =
-     ralt (rseq (deriv r1 c) r2) (rseq (markEmpty r1) (deriv r2 c))
-deriv (Rseq r1 r2) c   = rseq (deriv r1 c) r2
-deriv (Ralt r1 r2) c   = ralt (deriv r1 c) (deriv r2 c)
-deriv (Rstar (r :: R s)) c = (rseq (deriv r c) (rstar r))
-deriv Rvoid        c   = Rvoid
-deriv (Rmark p w r)  c = Rmark p (w ++ [c]) (deriv r c)
-deriv (Rnot s)     c   = if Set.member c s then Rvoid else rempty
-deriv Rany         c   = rempty
-
--- Create a regexp that *only* matches the empty string in
--- marked locations
--- (if the original could have matched the empty string in the
--- first place)
-markEmpty :: R n -> R n
-markEmpty (Rmark p w r) | nullable r = (Rmark p w (markEmpty r))
-markEmpty (Rmark p w r) = Rmark p w (markVoid r)
-markEmpty (Ralt r1 r2)  = Ralt  (markEmpty r1) (markEmpty r2)
-markEmpty (Rseq r1 r2)  = Rseq  (markEmpty r1) (markEmpty r2)
-markEmpty (Rstar r)     = Rstar (markEmpty r)
-markEmpty (Rchar c)     = rempty
-markEmpty Rvoid         = Rvoid
-markEmpty (Rnot  c)     = rempty
-markEmpty (Rany)        = rempty
-markEmpty Rempty        = rempty
-
--- create a regexp that doesn't match any strings, but still
--- contains the data at marks
-markVoid :: R n -> R n
-markVoid (Rmark p w r) = Rmark p w (markVoid r)
-markVoid (Ralt r1 r2)  = Ralt  (markVoid r1) (markVoid r2)
-markVoid (Rseq r1 r2)  = Rseq  (markVoid r1) (markVoid r2)
-markVoid (Rstar r)     = Rstar (markVoid r)
-markVoid _             = Rvoid
-
+-}

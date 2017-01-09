@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, OverloadedStrings #-}
-{-# LANGUAGE DataKinds, KindSignatures, TypeApplications #-}
+{-# LANGUAGE DataKinds, KindSignatures, TypeApplications, AllowAmbiguousTypes #-}
 
 module RegexpExample where
 
@@ -10,6 +10,8 @@ import Data.Text.Internal (showText)
 
 import qualified Data.Set as Set
 
+import qualified Data.Maybe as Maybe
+
 
 
 bibentry = showText [text|@InProceedings{sjoberg:congruence,
@@ -19,7 +21,6 @@ bibentry = showText [text|@InProceedings{sjoberg:congruence,
   month = 	  jan,
   year = 	  2015,
   address =   {Mumbai, India},
-  plclub =    {yes},
   pages =     {369--382},
   pdf =       {http://www.seas.upenn.edu/~sweirich/papers/popl15-congruence.pdf}
 }|]
@@ -27,36 +28,89 @@ bibentry = showText [text|@InProceedings{sjoberg:congruence,
 notc = Rnot (Set.fromList [','])
 
 
-d     = [re|[0-9]|]
 month = [re|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|]
-year  = [re|(?P<year>${d}${d}${d}${d})|]
+year  = [re|(?P<year>\d\d\d\d)|]
+
+--bibline = [re|(?P<tag>\w)*\s*=\s*{[^,]*},?\n|]
 
 anyy  = [re|.*${year}|]
 fy    = [re|(${anyy})*.*|]
 
--- whitespace characters
-ws = rchars (Set.fromList ['\n', '\r', ' ', '\t'])
--- newline characters
-nl = rchars (Set.fromList ['\n', '\r'])
 -- open brace
 open  = rchars (Set.fromList ['{' , '\"'])
 close = rchars (Set.fromList ['}' , '\"'])
 
-line = [re|.*=.*,|]
-popl = [re|booktitle${ws}*=${ws}*${open}POPL.*${close},|]
-title = [re|title${ws}*=${ws}*${open}(?P<name>.*)${close},${nl}|]
 
-entry = [re|article${open}.*{close}|]
+popl = [re|booktitle\s*=\s*${open}POPL.*${close},|]
+title = [re|title\s*=\s*${open}(?P<name>.*)${close},\n|]
+
+entry = [re|article${open}.*${close}|]
 
 
+-----------------------------------------------------------
+-----------------------------------------------------------
 
-rname  = [re|[A-Z][a-z]*|]
+rname  = [re|?P<name>[A-Z][a-z]*|]
+rphone = [re|?P<phone>\d\d\d-\d\d\d\d|]
 
-rphone = [re|${d}${d}${d}-${d}${d}${d}${d}|]
-
-pb    = [re|?P<name>{rname}|]
+pb    = [re|${rname}\s*${rphone}|]
 
 x = match pb "sdfkdsfh"    -- :: Result '["email","name"]
 name = getField @"name" x       -- :: Maybe [String]
 --phone = getField @"phone" x     -- :: Maybe [String]
 -- email = getField @"email" x     -- TypeError
+
+-----------------------------------------------------------
+-----------------------------------------------------------
+-- pandas example
+-- http://chrisalbon.com/python/pandas_regex_to_create_columns.html
+
+dat = ["Arizona 1 2014-12-23       3242.0",
+        "Iowa 1 2010-02-23       3453.7",
+        "Oregon 0 2014-06-20       2123.0",
+        "Maryland 0 2014-03-14       1123.6",
+        "Florida 1 2013-01-15       2134.0",
+        "Georgia 0 2012-07-14       2345.6"]
+
+-- some regular expressions for the individual pieces
+state  = [re|?P<state>[A-Z]\w*|]
+female = [re|?P<female>\d|]
+date   = [re|?P<date>....-..-..|]
+score  = [re|?P<score>\d\d\d\d\.\d|]
+
+-- Which rows contain dates?
+c0 = map (contains date) dat
+
+-- Extract the column of single digits
+c1 = map (extractOne female) dat
+
+-- Extract the column of dates
+c2 = map (extractOne date) dat
+
+-- Extract the column of thousands
+c3 = map (extractOne score) dat
+
+-- Extract the column of words
+c4 = map (extractOne state) dat
+
+-- Glue all columns together to make a table
+beside = zipWith both
+table = c1 `beside` c2 `beside` c3 `beside` c4
+
+----------------------------------------------
+-- instead of doing things like the demo, we can
+-- also extract all of the information at once with a
+-- regexp for the entire line's worth of data.
+
+r1 <+> r2  = r1 `rseq` [re|\s*|] `rseq` r2 
+line   = state <+> female <+> date <+> score
+
+t1 = map (extractOne line) dat
+
+-- or we can also get the columns this way
+columns = match (rstar line) (concat dat)
+
+-- or we can use extractAll to extract the rows directly
+rows = extractAll line (concat dat)
+
+

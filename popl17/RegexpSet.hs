@@ -265,7 +265,6 @@ rchar c = Rchar (Set.singleton c)
 rchars :: Set Char -> R Empty
 rchars s = Rchar s
 
-
 ------------------------------------------------------
 -- is this the regexp that always fails?
 isVoid :: R s -> Bool
@@ -281,13 +280,6 @@ isEmpty :: R s -> Maybe (s :~: Empty)
 isEmpty Rempty  = Just Refl
 isEmpty _       = Nothing
 
-------------------------------------------------------
-
--- matching using derivatives
--- we compute the derivative for each letter, then
--- extract the data structure stored in the regexp
-match :: Wf s => R s -> String -> Result s
-match r w = extract (foldl' deriv r w)
 
 -- | Extract the result from the regular expression
 -- if the regular expression is nullable
@@ -303,6 +295,19 @@ extract (Rmark n s r)  = both mark (extract r) where
       mark = Just (Entry n [s] :> Nil)
 extract _              = Nothing
 
+
+
+{-
+------------------------------------------------------
+
+-- matching using derivatives
+-- we compute the derivative for each letter, then
+-- extract the data structure stored in the regexp
+match :: Wf s => R s -> String -> Result s
+match r w = extract (foldl' deriv r w)
+-}
+
+{-
 -- Can the regexp match the empty string? 
 nullable :: R n -> Bool
 nullable Rempty         = True
@@ -345,7 +350,7 @@ markEmpty (Rnot cs)     = rempty
 markEmpty Rvoid         = Rvoid
 markEmpty Rempty        = Rempty
 
-
+-}
 -------------------------------------------------------------------------
 
 {-
@@ -358,29 +363,11 @@ rinit r s | nullable r  = Just ([], s)
 -}
 
 
-startsWith :: R Empty -> String -> Bool
-startsWith r s = nullable r || not (null (fst (rinit r s)))
-
-rinit :: R Empty -> String -> (String, String)
-rinit r (x:xs) = let r' = deriv r x in
-                 if isVoid r' then ("", x:xs) else
-                   case rinit r' xs of
-                     (hd,tl) -> (x:hd, tl)                     
-rinit r [] = ("","") 
-
-ccons :: a -> [[a]] -> [[a]]
-ccons x []     = (x:[]):[]
-ccons x (y:ys) = (x:y) :ys
-
-split :: R Empty -> String -> [String]
-split r [] = []
-split r s@(x:xs) = case rinit r s of
-  ("",_)  -> ccons x (split r xs)
-  (ys,zs) -> [] : split r zs
 
 
 -------------------------------------------------------------------------
 -- Show instances
+
 
 instance Show (Sing (n :: Symbol)) where
   show ps@SSym = symbolVal ps
@@ -395,6 +382,7 @@ instance Show (Dict s) where
     show' (e :> Nil) = show e ++ "}"
     show' (e :> xs)  = show e ++ "," ++ show' xs
 
+{-
 instance Show (R n) where
   show Rvoid  = "∅"
   show Rempty = "ε"                                            
@@ -408,7 +396,7 @@ instance Show (R n) where
   show (Rmark pn w r)  = "(?P<" ++ show pn ++ ">" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "[^" ++ show cs ++ "]"
-
+-}
 -------------------------------------------------------------------------
 
 -- | Singleton version of union function (not used here)
