@@ -110,19 +110,16 @@ instance WfOcc Many
 class (m ~ Alt m m,
        Repeat m ~ Repeat (Repeat m),
        Merge m (Repeat m) ~ Repeat m,
-       Alt '[] (Repeat m) ~ Repeat m,
-       Repeat m ~ Merge (Repeat m) (Repeat m),
+--       Alt '[] (Repeat m) ~ Repeat m,
+--       Repeat m ~ Merge (Repeat m) (Repeat m),
        -- they also have runtime representations
        SingI m) =>
        Wf (m :: U) where
---       singSet :: SingSet m
 
 -- note the superclass constraint is proved automatically
 -- by Haskell's type class resolution 
 instance Wf '[] where
---   singSet = WNil
 instance (SingI a, WfOcc o, Wf s) => Wf ('(a,o) : s) where
---   singSet = WCons sing sing singSet
 
 -- this constraint rules out "infinite" sets of the form
 -- (which has a coinductive proof of the merge property?)
@@ -335,8 +332,8 @@ first (Just x) _       = Just (glueRight x (sing @U @s2))
 -- A "default" Dict.
 -- [] for each name in the domain of the set
 -- Needs a runtime representation of the set for construction
-nils :: forall s. (Wf s, SingI (Repeat s)) => Dict (Repeat s)
-nils = nils' (sing :: Sing (Repeat s)) where 
+nils :: forall s. (Wf s, SingI s) => Dict (Repeat s)
+nils = nils' (sing :: Sing s) where 
     nils' :: Sing ss -> Dict (Repeat ss)
     nils' SNil                        = Nil
     nils' (SCons (STuple2 n _) r) = Entry n SMany [] :> nils' r
@@ -405,7 +402,7 @@ instance (SingI o, (Get (Find n s :: Index n o s))) => HasField n (Result s) [St
 -- Note that we require all sets to be Wf. (Empty is known to be.)
 data R (s :: U) where
   Rempty :: R Empty 
-  Rvoid  :: R s  
+  Rvoid  :: R s
   Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
   Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt   s1 s2)
   Rstar  :: (Wf s) => R s  -> R (Repeat s)
@@ -429,7 +426,13 @@ rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
-ralt :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
+ralt :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
+ralt r1@Rvoid r2 = case (sing :: Sing s1, sing :: Sing s2) of
+   (SNil, SNil) -> r2
+   _ -> Ralt r1 r2
+ralt r1 r2@Rvoid = case (sing :: Sing s1, sing :: Sing s2) of
+   (SNil, SNil) -> r1
+   _ -> Ralt r1 r2
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
@@ -473,14 +476,19 @@ isVoid :: R s -> Bool
 isVoid Rvoid          = True
 isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
 isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
-isVoid (Rstar r)      = isVoid r
+isVoid (Rstar r)      = False
 isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
+
+
 -- is this the regexp that accepts only the empty string?
-isEmpty :: R s -> Maybe (s :~: Empty)
-isEmpty Rempty  = Just Refl
-isEmpty _       = Nothing
+isEmpty :: Wf s => R s -> Maybe (s :~: Empty)
+isEmpty Rempty    = Just Refl
+isEmpty (Rstar r) = case isEmpty r of
+    Just Refl -> Just Refl
+    Nothing   -> Nothing
+isEmpty _         = Nothing
 
 
 markResult :: Sing n -> String -> Result (One n)
@@ -490,6 +498,7 @@ markResult n s = Just (Entry n SStr s :> Nil)
 -- if the regular expression is nullable
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
+{-
 extract :: forall s. Wf s => R s -> Result s
 extract Rempty       = Just Nil
 extract (Rchar cs)   = Nothing 
@@ -499,4 +508,4 @@ extract (Rstar r)    = Just $ nils @s
 extract (Rmark n s r) = both (markResult n s) (extract r)
 extract (Rnot cs)    = if Set.null cs then Nothing else Just Nil
 extract _            = Nothing
-
+-}

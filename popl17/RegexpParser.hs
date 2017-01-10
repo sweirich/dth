@@ -42,6 +42,8 @@ data RegExp
   | Mark String RegExp 
   deriving Show
 
+rmaybe r = Alt Empty r
+
 chars_whitespace = " \t\n\r\f\v"
 chars_digit      = ['0' .. '9']
 chars_word       = ('_':['a' .. 'z']++['A' .. 'Z']++['0' .. '9'])
@@ -89,7 +91,8 @@ regexParser = alts <* eof where
                  <*> (try esc_char_p <|> noneOf "]") 
   alts       = try (Alt <$> seqs <*> (P.char '|' *> alts)) <|> seqs
   seqs       = try (Seq <$> star <*> seqs)                 <|> star
-  star       = try (Star <$> (atom <* P.char '*'))         <|> mark
+  star       = try (Star <$> (atom <* P.char '*'))         <|> maybe
+  maybe      = try (rmaybe <$> (atom <* P.char '?'))        <|> mark
   mark       = try (Mark <$> (P.char '?' *> P.char 'P' *> P.char '<'
                                          *> many1 (noneOf ">") <* P.char '>')
                                         <*> alts)
@@ -128,10 +131,10 @@ instance Lift RegExp where
   lift (Alt r1 r2)   = apply 'Ralt   (map lift [r1, r2])
   lift (Seq r1 r2)   = apply 'Rseq   (map lift [r1, r2])
   lift (Star r1)     = apply 'Rstar  (map lift [r1])
-  lift Empty         = apply 'Rchar  []
-  lift Void          = apply 'Rvoid  []
+  lift Empty         = apply 'Rempty []
+  lift Void          = return $ VarE 'rvoid
   lift Any           = apply 'Rany []
-  lift (Not r)       = apply 'Rnot (map lift [r])
+  lift (Not cs)       = apply 'Rnot [lift cs]
   lift (Mark s r)    = do e2 <- lift r
                           return $ AppE (AppE (VarE 'rmarkSing) p) e2 where
                              p = SigE (ConE 'Proxy) (AppT (ConT ''Proxy)

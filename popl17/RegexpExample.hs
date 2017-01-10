@@ -52,13 +52,16 @@ entry = [re|article${open}.*${close}|]
 
 rname  = [re|?P<name>[A-Z][a-z]*|]
 rphone = [re|?P<phone>\d\d\d-\d\d\d\d|]
+degree = [re|?P<degree>BA|BS|MS|PHD|MBA|]
 
-pb    = [re|${rname}\s*${rphone}|]
+pb    = [re|\{${rname}\s*(${degree}\s*)*${rphone}?\}|]
 
-x = match pb "sdfkdsfh"    -- :: Result '["email","name"]
-name = getField @"name" x       -- :: Maybe [String]
---phone = getField @"phone" x     -- :: Maybe [String]
--- email = getField @"email" x     -- TypeError
+pb2  = rname `rseq` (ralt rempty rphone)
+
+Just x = match pb "{V 123-4567}"    
+name = getFieldD @"name" x       -- :: String
+phone = getFieldD @"phone" x     -- :: Maybe String
+--email = getField @"email" x     -- TypeError
 
 -----------------------------------------------------------
 -----------------------------------------------------------

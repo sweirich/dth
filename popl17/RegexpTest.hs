@@ -39,6 +39,7 @@ greedytest = match greedy "ab"
 
 r10 = (rstar Rany) `rseq` rmark @"a" (rchar 'a')
 
+r11 = (rstar (rmark @"n" (rchar 'a')) `rseq` (rchar '}'))
 main = runTestTT $
        TestList [
          "1" ~: assert $ isJust (match r1 "a"),
@@ -59,7 +60,8 @@ main = runTestTT $
          "g1" ~: getField @"a"  greedytest ~?= [],
          "g2" ~: getField @"ab" greedytest ~?= ["ab"],
          "g3" ~: getField @"b"  greedytest ~?= [],
-         "c1" ~: getField @"a" (match r10 "a") ~?= ["a"]
+         "c1" ~: getField @"a" (match r10 "a") ~?= ["a"],
+         "c4" ~: getField @"n" (match r11 "a}") ~?= ["a"]
 --         "c2" ~: getField @"b" (match r10 "a") ~?= []
        ]
 
