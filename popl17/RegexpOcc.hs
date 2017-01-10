@@ -48,8 +48,8 @@ import Data.Maybe(maybeToList)
 -- Type system keeps track of a list of all possible
 -- labels that *could* appear in the output
 
-instance Ord Symbol where (<=) = error "no term"
-instance Eq  Symbol where (==) = error "no term"
+--instance Ord Symbol where (<=) = error "no term"
+--instance Eq  Symbol where (==) = error "no term"
 -- Type-level set operation
 
 
@@ -95,14 +95,15 @@ $(singletons [d|
 
 type U = [(Symbol,Occ)]
 
-showSymbol :: Sing (s :: Symbol) -> String
+showSymbol :: Π  (s :: Symbol) -> String
 showSymbol ps = case ps of SSym -> symbolVal ps
 
 
-class (o ~ Max o o, SingI o, Show (TOcc o)) => WfOcc (o :: Occ) where
+class (o ~ Max o o, SingI o) => WfOcc (o :: Occ) where
 instance WfOcc Str
 instance WfOcc Opt
 instance WfOcc Many
+
 
 -- Well-founded sets are exactly those constructed only
 -- from a finite number of [] and :
@@ -110,8 +111,6 @@ instance WfOcc Many
 class (m ~ Alt m m,
        Repeat m ~ Repeat (Repeat m),
        Merge m (Repeat m) ~ Repeat m,
---       Alt '[] (Repeat m) ~ Repeat m,
---       Repeat m ~ Merge (Repeat m) (Repeat m),
        -- they also have runtime representations
        SingI m) =>
        Wf (m :: U) where
@@ -137,6 +136,10 @@ testWf = ()
 -- A data structure indexed by a type-level set
 -- Keeps the entries in sorted order by key
 
+
+type Π n = Sing n
+
+
 type Result (s :: U) = Maybe (Dict s)
 
 type family TOcc (o :: Occ) :: Type where
@@ -145,7 +148,7 @@ type family TOcc (o :: Occ) :: Type where
   TOcc Many = [String]
 
 data Entry (no :: (Symbol,Occ) ) where
-   Entry :: Sing (s :: Symbol) -> Sing o -> TOcc o -> Entry '(s,o)                                                                          
+   Entry :: Π s -> Π o -> TOcc o -> Entry '(s,o)                                                                          
 data Dict (s :: U) where
    Nil  :: Dict '[]
    (:>) :: Entry a -> Dict tl -> Dict (a : tl)
@@ -160,7 +163,7 @@ instance Show (Sing (n :: Symbol)) where
 
 instance Show (Entry s) where
   show (Entry sn so ss) = show sn ++ "=" ++ showData so ss where
-    showData :: Sing o -> TOcc o -> String
+    showData :: Π o -> TOcc o -> String
     showData SStr  ss = ss
     showData SOpt  ss = show ss
     showData SMany ss = show ss
@@ -174,7 +177,7 @@ instance Show (Dict s) where
 
 ------
 
-toMany :: Sing o -> TOcc o -> [String]
+toMany :: Π o -> TOcc o -> [String]
 toMany SStr  s        = [s]
 toMany SOpt  (Just s) = [s]
 toMany SOpt  Nothing  = []
@@ -231,12 +234,12 @@ altDict (e1@(Entry ps so1 ss) :> t1)
      SFalse -> e2 :> altDict (e1 :> t1) t2 
 -}
 
-defocc :: Sing o -> TOcc (MakeOpt o)
+defocc :: Π o -> TOcc (MakeOpt o)
 defocc SStr  = Nothing    
 defocc SOpt  = Nothing
 defocc SMany = []
 
-weaken :: Sing o -> TOcc o -> TOcc (MakeOpt o)
+weaken :: Π o -> TOcc o -> TOcc (MakeOpt o)
 weaken SStr  s = Just s
 weaken SOpt  s = s
 weaken SMany s = s
@@ -244,7 +247,7 @@ weaken SMany s = s
 -- This was a nice one to define.  I made it an id function for every
 -- case, then used the four type errors to adjust
 
-glueOccLeft :: Sing o1 -> Sing o2 -> TOcc o2 -> TOcc (Max o1 o2)
+glueOccLeft :: Π o1 -> Π o2 -> TOcc o2 -> TOcc (Max o1 o2)
 glueOccLeft SStr SStr  m = m
 glueOccLeft SStr SOpt  m = m
 glueOccLeft SStr SMany m = m
@@ -256,7 +259,7 @@ glueOccLeft SMany SOpt (Just m) = [m]
 glueOccLeft SMany SOpt Nothing = []
 glueOccLeft SMany SMany m = m
 
-glueOccRight :: Sing o1 -> TOcc o1 -> Sing o2 -> TOcc (Max o1 o2)
+glueOccRight :: Π o1 -> TOcc o1 -> Π o2 -> TOcc (Max o1 o2)
 glueOccRight SStr m SStr   = m
 glueOccRight SStr m SOpt   = Just m
 glueOccRight SStr m SMany  = [m]
@@ -268,7 +271,7 @@ glueOccRight SMany m SStr  = m
 glueOccRight SMany m SOpt  = m
 glueOccRight SMany m SMany = m
 
-glueLeft :: Sing s1 -> Dict s2 -> Dict (Alt s1 s2)
+glueLeft :: Π s1 -> Dict s2 -> Dict (Alt s1 s2)
 glueLeft SNil Nil = Nil
 glueLeft SNil (e2@(Entry pt so2 ts) :> t2) =
       (Entry pt so tocc) :> (glueLeft SNil t2) where
@@ -295,7 +298,7 @@ glueLeft (SCons e1@(STuple2 (ps :: Sing s) so1)  t1)
                  so   = sMakeOpt so2
                  tocc = weaken so2 ts
 
-glueRight :: Dict s1 -> Sing s2 -> Dict (Alt s1 s2)
+glueRight :: Dict s1 -> Π s2 -> Dict (Alt s1 s2)
 glueRight Nil SNil = Nil
 glueRight (e2@(Entry pt so2 ts) :> t2) SNil =
     (Entry pt so tocc) :> (glueRight t2 SNil) where
@@ -332,7 +335,7 @@ first (Just x) _       = Just (glueRight x (sing @U @s2))
 -- A "default" Dict.
 -- [] for each name in the domain of the set
 -- Needs a runtime representation of the set for construction
-nils :: forall s. (Wf s, SingI s) => Dict (Repeat s)
+nils :: forall s n. (Wf s, SingI s) => Dict (Repeat s)
 nils = nils' (sing :: Sing s) where 
     nils' :: Sing ss -> Dict (Repeat ss)
     nils' SNil                        = Nil
@@ -400,6 +403,7 @@ instance (SingI o, (Get (Find n s :: Index n o s))) => HasField n (Result s) [St
 
 -- Our GADT, indexed by the set of pattern variables
 -- Note that we require all sets to be Wf. (Empty is known to be.)
+
 data R (s :: U) where
   Rempty :: R Empty 
   Rvoid  :: R s
@@ -426,13 +430,16 @@ rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
+-- reduces void|r and r|void to r (when neither capture)
 ralt :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
-ralt r1@Rvoid r2 = case (sing :: Sing s1, sing :: Sing s2) of
-   (SNil, SNil) -> r2
-   _ -> Ralt r1 r2
-ralt r1 r2@Rvoid = case (sing :: Sing s1, sing :: Sing s2) of
-   (SNil, SNil) -> r1
-   _ -> Ralt r1 r2
+-- we can remove a void on each side if both indices are Empty
+ralt r1 r2 | isVoid r1,
+             Just Refl <- noCapture @s1,
+             Just Refl <- noCapture @s2  = r2
+ralt r1 r2 | isVoid r2,
+             Just Refl <- noCapture @s1,
+             Just Refl <- noCapture @s2  = r1
+-- some character class combinations
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
@@ -451,9 +458,11 @@ rmarkSing n r = Rmark (sing @Symbol @n) "" r
 
 -- r** = r*
 -- empty* = empty
-rstar :: (Wf s) => R s -> R (Repeat s)
+-- void*  = empty
+rstar :: forall s. (Wf s) => R s -> R (Repeat s)
 rstar (Rstar s) = Rstar s
 rstar r | Just Refl <- isEmpty r = r
+--rstar r | isVoid r, Just Refl <- noCapture @s = rempty
 rstar s = Rstar s
 
 -- this needs to have this type to make inference work
@@ -472,6 +481,12 @@ rchars s = Rchar s
 
 
 ------------------------------------------------------
+noCapture :: forall s. Wf s => Maybe (s :~: Empty)
+noCapture = case (sing :: Sing s) of
+  SNil -> Just Refl
+  _    -> Nothing
+
+
 isVoid :: R s -> Bool
 isVoid Rvoid          = True
 isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
@@ -479,8 +494,6 @@ isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
 isVoid (Rstar r)      = False
 isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
-
-
 
 -- is this the regexp that accepts only the empty string?
 isEmpty :: Wf s => R s -> Maybe (s :~: Empty)
@@ -494,18 +507,3 @@ isEmpty _         = Nothing
 markResult :: Sing n -> String -> Result (One n)
 markResult n s = Just (Entry n SStr s :> Nil)
 
--- | extract the result from the regular expression
--- if the regular expression is nullable
--- even if the regular expression is not nullable, there
--- may be some subexpressions that were matched, so return those
-{-
-extract :: forall s. Wf s => R s -> Result s
-extract Rempty       = Just Nil
-extract (Rchar cs)   = Nothing 
-extract (Rseq r1 r2) = both (extract r1) (extract r2)
-extract (Ralt r1 r2) = first (extract r1) (extract r2)
-extract (Rstar r)    = Just $ nils @s
-extract (Rmark n s r) = both (markResult n s) (extract r)
-extract (Rnot cs)    = if Set.null cs then Nothing else Just Nil
-extract _            = Nothing
--}

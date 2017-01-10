@@ -108,20 +108,22 @@ data R where
 -- reduces (r,epsilon) (epsilon,r) to r
 -- (r,void) and (void,r) to void
 rseq :: R -> R -> R
-rseq r1 r2 | isEmpty r1 = r2
-rseq r1 r2 | isEmpty r2 = r1
-rseq r1 r2 | isVoid r1 = Rvoid
-rseq r1 r2 | isVoid r2 = Rvoid
+--rseq r1 r2 | isEmpty r1 = r2
+--rseq r1 r2 | isEmpty r2 = r1
+--rseq r1 r2 | isVoid r1 = Rvoid
+--rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
 -- Construct an alternative
-ralt :: R -> R -> R 
---ralt r1 r2 | isVoid r1 = r2  -- cannot do this because Void may be "remembering" some names
---ralt r1 r2 | isVoid r2 = r1
+ralt :: R -> R -> R
+{-
+ralt r1 r2 | isVoid r1 = r2  
+ralt r1 r2 | isVoid r2 = r1
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
 ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
+-}
 ralt r1 r2                 = Ralt r1 r2
 
 -- convenience function for marks
@@ -136,6 +138,7 @@ rmarkSing n r = Rmark (symbolVal n) "" r
 -- empty* ~> empty
 rstar :: R -> R
 rstar (Rstar s) = Rstar s
+--rstar r | isVoid r = rempty
 rstar r | isEmpty r = rempty
 rstar s = Rstar s
 
@@ -162,7 +165,7 @@ isVoid :: R -> Bool
 isVoid Rvoid          = True
 isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
 isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
-isVoid (Rstar r)      = isVoid r
+isVoid (Rstar r)      = False
 isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
@@ -224,17 +227,15 @@ deriv (Rnot s)      c = if Set.member c s then Rvoid else rempty
 -- Create a regexp that *only* matches the empty string
 -- (if it matches anything), but retains all captured strings
 markEmpty :: R -> R 
-markEmpty (Rmark p w r) | nullable r = (Rmark p w (markEmpty r))
-markEmpty (Rmark p w r) = Rvoid
+markEmpty (Rmark p w r) = Rmark p w (markEmpty r)
 markEmpty (Ralt r1 r2)  = ralt (markEmpty r1) (markEmpty r2)
 markEmpty (Rseq r1 r2)  = rseq (markEmpty r1) (markEmpty r2)
-markEmpty (Rstar r)     = markEmpty r
-markEmpty (Rchar s)     = rempty
-markEmpty Rany          = rempty
-markEmpty (Rnot cs)     = rempty
+markEmpty (Rstar r)     = rstar (markEmpty r)
 markEmpty Rempty        = rempty
 markEmpty Rvoid         = Rvoid
-
+markEmpty (Rchar s)     = Rvoid
+markEmpty Rany          = Rvoid
+markEmpty (Rnot cs)     = Rvoid
 
 
 -------------------------------------------------------------------------
@@ -255,7 +256,7 @@ instance Show R  where
   show Rvoid  = "∅"   
   show (Rseq r1 r2) = show r1 ++ show r2
   show (Ralt r1 r2) = show r1 ++ "|" ++ show r2
-  show (Rstar r)    = show r  ++ "*"
+  show (Rstar r)    = "(" ++ show r  ++ ")*"
   show (Rchar cs) = if (Set.size cs == 1) then (Set.toList cs)
                    else if cs == (Set.fromList ['0' .. '9']) then "\\d"
                    else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
@@ -270,3 +271,35 @@ instance Monoid Dict where
   mappend = combine 
  
 
+----------------------------------------------------------------
+-- | Given r, return the result from the first part 
+-- of the string that matches m (greedily... consume as much
+-- of the string as possible)
+matchInit :: R -> String -> (Result, String)
+matchInit r (x:xs) = let r' = deriv r x in
+                 if isVoid r' then (extract r, x:xs)
+                 else matchInit r' xs
+matchInit r "" = (match r "", "")
+
+
+pextract :: R -> String -> (Result, String)
+pextract r "" = (match r "", "")
+pextract r t  = case matchInit r t of
+ (Just r,s)  -> (Just r, s)
+ (Nothing,_) -> pextract r (tail t)
+
+-- | Extract groups from the first match of regular expression pat.
+extractOne :: R -> String -> Result 
+extractOne r s = fst (pextract r s)
+
+-- | Extract groups from all matches of regular expression pat.
+extractAll :: R -> String -> [Dict]
+extractAll r s = case pextract r s of
+      (Just dict, "")   -> [dict]
+      (Just dict, rest) -> dict : extractAll r rest
+      (Nothing, _)      -> []
+
+contains :: R -> String -> Bool
+contains r s = case (pextract r s) of
+   (Just r,_)  -> True
+   (Nothing,_) -> False

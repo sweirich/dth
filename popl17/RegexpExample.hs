@@ -41,7 +41,7 @@ open  = rchars (Set.fromList ['{' , '\"'])
 close = rchars (Set.fromList ['}' , '\"'])
 
 
-popl = [re|booktitle\s*=\s*${open}POPL.*${close},|]
+popl = [re|booktitle\s*=\s*\{POPL.*[^\}]\},?|]
 title = [re|title\s*=\s*${open}(?P<name>.*)${close},\n|]
 
 entry = [re|article${open}.*${close}|]
@@ -49,8 +49,8 @@ entry = [re|article${open}.*${close}|]
 
 -----------------------------------------------------------
 -----------------------------------------------------------
-
 rname  = [re|?P<name>[A-Z][a-z]*|]
+
 rphone = [re|?P<phone>\d\d\d-\d\d\d\d|]
 degree = [re|?P<degree>BA|BS|MS|PHD|MBA|]
 
@@ -58,9 +58,9 @@ pb    = [re|\{${rname}\s*(${degree}\s*)*${rphone}?\}|]
 
 pb2  = rname `rseq` (ralt rempty rphone)
 
-Just x = match pb "{V 123-4567}"    
-name = getFieldD @"name" x       -- :: String
-phone = getFieldD @"phone" x     -- :: Maybe String
+x = match pb "{V PHD BS 123-4567}"    
+name = getField @"name" x       -- :: String
+phone = getField @"phone" x     -- :: Maybe String
 --email = getField @"email" x     -- TypeError
 
 -----------------------------------------------------------
@@ -108,12 +108,14 @@ table = c1 `beside` c2 `beside` c3 `beside` c4
 r1 <+> r2  = r1 `rseq` [re|\s*|] `rseq` r2 
 line   = state <+> female <+> date <+> score
 
-t1 = map (extractOne line) dat
-
--- or we can also get the columns this way
-columns = match (rstar line) (concat dat)
+-- we can use the combo regexp on each line
+rows = map (extractOne line) dat
 
 -- or we can use extractAll to extract the rows directly
-rows = extractAll line (concat dat)
+rows' = extractAll line (concat dat)
+
+-- or we can also get the columns this way (but it can be slow)
+columns = match (rstar line) (concat dat)
+
 
 
