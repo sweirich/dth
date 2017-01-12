@@ -22,7 +22,6 @@ import qualified Data.Char as Char
 
 import Data.List(foldl')
 
-
 type Result = Maybe Dict
 
 data Entry where
@@ -108,31 +107,33 @@ data R where
 -- reduces (r,epsilon) (epsilon,r) to r
 -- (r,void) and (void,r) to void
 rseq :: R -> R -> R
---rseq r1 r2 | isEmpty r1 = r2
---rseq r1 r2 | isEmpty r2 = r1
---rseq r1 r2 | isVoid r1 = Rvoid
---rseq r1 r2 | isVoid r2 = Rvoid
+rseq r1 r2 | isEmpty r1 = r2
+rseq r1 r2 | isEmpty r2 = r1
+rseq r1 r2 | isVoid r1 = Rvoid
+rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
 -- Construct an alternative
 ralt :: R -> R -> R
-{-
 ralt r1 r2 | isVoid r1 = r2  
 ralt r1 r2 | isVoid r2 = r1
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
 ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
--}
 ralt r1 r2                 = Ralt r1 r2
 
 -- convenience function for marks
-rmark :: forall a. KnownSymbol a => R -> R 
-rmark r = Rmark (symbolVal (Proxy :: Proxy a)) "" r
+-- ????
+--rmark :: forall a. KnownSymbol a => R -> R
+--rmark r = rmarkSing (symbolVal (Proxy :: Proxy a)) r
 
 rmarkSing :: KnownSymbol n => proxy n -> R -> R 
-rmarkSing n r = Rmark (symbolVal n) "" r
+rmarkSing n r = rmarkInternal (symbolVal n) "" r
 
+rmarkInternal :: String -> String -> R -> R 
+rmarkInternal n w r | isVoid r = Rvoid
+rmarkInternal n w r = Rmark n w r
 
 -- r** ~> r*
 -- empty* ~> empty
@@ -171,8 +172,12 @@ isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
 isEmpty :: R -> Bool
-isEmpty Rempty    = True
-isEmpty _         = False
+isEmpty Rempty         = True
+isEmpty (Rseq r1 r2)   = isEmpty r1 && isEmpty r2
+isEmpty (Ralt r1 r2)   = isEmpty r1 && isEmpty r2
+isEmpty (Rstar r)      = isEmpty r
+isEmpty (Rmark ps s r) = isEmpty r
+isEmpty _ = False
 
 ------------------------------------------------------
 
@@ -193,7 +198,7 @@ extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
 extract (Ralt r1 r2)   = first (extract r1) (extract r2)
 extract (Rstar r)      = Just $ nils
 extract (Rmark n s r)  = both mark (extract r) where
-      mark = Just (Entry n [s] :> Nil)
+      mark = Just (Entry n [reverse s] :> Nil)
 extract _              = Nothing
 
 -- Can the regexp match the empty string? 
@@ -218,11 +223,10 @@ deriv (Rseq r1 r2)  c = rseq (deriv r1 c) r2
 deriv (Ralt r1 r2)  c = ralt (deriv r1 c) (deriv r2 c)
 deriv (Rstar r)     c = rseq (deriv r c) (rstar r)
 deriv Rvoid         c = Rvoid
-deriv (Rmark n w r) c = Rmark n (w ++ [c]) (deriv r c)
+deriv (Rmark n w r) c = Rmark n (c : w) (deriv r c)
 deriv (Rchar s)     c = if Set.member c s then rempty else Rvoid
 deriv Rany  c         = rempty
 deriv (Rnot s)      c = if Set.member c s then Rvoid else rempty
-
 
 -- Create a regexp that *only* matches the empty string
 -- (if it matches anything), but retains all captured strings

@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, OverloadedStrings #-}
-{-# LANGUAGE DataKinds, KindSignatures, TypeApplications, AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes, TypeOperators #-}
 
 module RegexpExample where
 
@@ -12,40 +12,25 @@ import qualified Data.Set as Set
 
 import qualified Data.Maybe as Maybe
 
+import GHC.TypeLits
 
 
-bibentry = showText [text|@InProceedings{sjoberg:congruence,
-  author = 	  {Vilhelm Sj\"oberg and Stephanie Weirich},
-  title = 	  {Programming up to Congruence},
-  booktitle = {POPL 2015: 42nd ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages},
-  month = 	  jan,
-  year = 	  2015,
-  address =   {Mumbai, India},
-  pages =     {369--382},
-  pdf =       {http://www.seas.upenn.edu/~sweirich/papers/popl15-congruence.pdf}
-}|]
 
+path  = [re|/?((?P<d>[^/]+)/)*(?P<b>[^/.]+)(?P<e>\..*)?|]
+
+rpath = ropt (rchars "/") `rseq`
+        rstar (rmark @"d" (rplus (rnot "/")) `rseq` (rchars "/")) `rseq`
+        rmark @"b" (rplus (rnot "/.")) `rseq`
+        ropt (rmark @"e"  ((rchars ".") `rseq` (rstar rany)))
+
+
+files = ["/Users/sweirich/github/dth/popl17/RegexpExample.hs", 
+         "/Users/sweirich/github/dth/popl17/influence.pptx",
+         "/Users/sweirich/github/dth/popl17/LICENSE"]
+
+
+{-
 notc = Rnot (Set.fromList [','])
-
-
-month = [re|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|]
-year  = [re|(?P<year>\d\d\d\d)|]
-
---bibline = [re|(?P<tag>\w)*\s*=\s*{[^,]*},?\n|]
-
-anyy  = [re|.*${year}|]
-fy    = [re|(${anyy})*.*|]
-
--- open brace
-open  = rchars (Set.fromList ['{' , '\"'])
-close = rchars (Set.fromList ['}' , '\"'])
-
-
-popl = [re|booktitle\s*=\s*\{POPL.*[^\}]\},?|]
-title = [re|title\s*=\s*${open}(?P<name>.*)${close},\n|]
-
-entry = [re|article${open}.*${close}|]
-
 
 -----------------------------------------------------------
 -----------------------------------------------------------
@@ -78,17 +63,17 @@ dat = ["Arizona 1 2014-12-23       3242.0",
 -- some regular expressions for the individual pieces
 state  = [re|?P<state>[A-Z]\w*|]
 female = [re|?P<female>\d|]
-date   = [re|?P<date>....-..-..|]
+fulldate = [re|?P<date>....-..-..|]
 score  = [re|?P<score>\d\d\d\d\.\d|]
 
 -- Which rows contain dates?
-c0 = map (contains date) dat
+c0 = map (contains fulldate) dat
 
 -- Extract the column of single digits
 c1 = map (extractOne female) dat
 
 -- Extract the column of dates
-c2 = map (extractOne date) dat
+c2 = map (extractOne fulldate) dat
 
 -- Extract the column of thousands
 c3 = map (extractOne score) dat
@@ -106,7 +91,7 @@ table = c1 `beside` c2 `beside` c3 `beside` c4
 -- regexp for the entire line's worth of data.
 
 r1 <+> r2  = r1 `rseq` [re|\s*|] `rseq` r2 
-line   = state <+> female <+> date <+> score
+line   = state <+> female <+> fulldate <+> score
 
 -- we can use the combo regexp on each line
 rows = map (extractOne line) dat
@@ -117,5 +102,27 @@ rows' = extractAll line (concat dat)
 -- or we can also get the columns this way (but it can be slow)
 columns = match (rstar line) (concat dat)
 
+--DAY	DESCRIPTION	HIGH/LOW	PRECIP	WIND	HUMIDITY	UV INDEX	SUNRISE	SUNSET	MOONRISE	MOONSET
 
+day   = [re|MON|TUE|WED|THU|FRI|SAT|SUN|]
+month = [re|JAN|FEB|MAR|APR|]
+date  = [re|\d|\d\d|]
+desc  = [re|Sunny|Partly Cloudy|Rain|Snow|Mostly Cloudy|]
+temp  = [re|(\d|\d\d|\d\d\d)°|]
+time  = [re|\d\d?:\d\d (am|pm)|]
+prec  = [re|\d\d\d?%|]
 
+multidesc = rstar (desc `rseq` rchar '/') `rseq` desc
+
+mt :: forall n. KnownSymbol n => R '[n :=> 'Opt] 
+mt = (rmark @n time) `ralt` [re|--|]
+
+weather = day <+> month <+> date <+> multidesc <+> temp <+> temp <+> prec <+> prec <+> mt @"sunrise" <+> mt @"sunset" <+> mt @"moonrise" <+> mt @"moonset"
+
+paris_weather = 
+ ["SUN JAN 15 Rain/Snow     41°  34° 60% 83% 8:38 am 5:21 pm 9:12 pm 10:17 am",
+  "WED JAN 18 Sunny         29°  20° 10% 70% 8:36 am 5:26 pm -- 11:38 am",
+  "THU JAN 19 Partly Cloudy 29°  20° 10% 72% 8:35 am 5:27 pm 12:29 am 12:03 pm",
+  "FRI JAN 20 Partly Cloudy 29°  21° 10% 68% 8:34 am 5:29 pm 1:30 am 12:29 pm",
+  "SAT JAN 21 Sunny         32°  21° 10% 74% 8:33 am 5:30 pm 2:32 am 12:57 pm"]
+-}

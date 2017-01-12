@@ -10,7 +10,7 @@ module RegexpParser(module Regexp, re) where
 -- this QQ works with all three interfaces
 -- because it generates the output at compile time
 --import Regexp as Regexp
-import Regexp as Regexp
+import RegexpDependent as Regexp
 
 import Language.Haskell.TH hiding (match)
 import Language.Haskell.TH.Syntax
@@ -42,7 +42,8 @@ data RegExp
   | Mark String RegExp 
   deriving Show
 
-rmaybe r = Alt Empty r
+uplus r  = Seq r (Star r)
+umaybe r = Alt Empty r
 
 chars_whitespace = " \t\n\r\f\v"
 chars_digit      = ['0' .. '9']
@@ -91,8 +92,9 @@ regexParser = alts <* eof where
                  <*> (try esc_char_p <|> noneOf "]") 
   alts       = try (Alt <$> seqs <*> (P.char '|' *> alts)) <|> seqs
   seqs       = try (Seq <$> star <*> seqs)                 <|> star
-  star       = try (Star <$> (atom <* P.char '*'))         <|> maybe
-  maybe      = try (rmaybe <$> (atom <* P.char '?'))        <|> mark
+  star       = try (Star <$> (atom <* P.char '*'))         <|> plus
+  plus       = try (uplus <$> (atom <* P.char '+'))         <|> maybe
+  maybe      = try (umaybe <$> (atom <* P.char '?'))        <|> mark
   mark       = try (Mark <$> (P.char '?' *> P.char 'P' *> P.char '<'
                                          *> many1 (noneOf ">") <* P.char '>')
                                         <*> alts)
