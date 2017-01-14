@@ -13,7 +13,8 @@ path  = [re|/?((?P<d>[^/]+)/)*(?P<b>[^/.]+)(?P<e>\..*)?|]
 filename = "dth/popl17/Regexp.hs"
 
 
-
+multiline = "ksjdfhsdkf\
+ \ksdjhfksdhf"
 
 
 
