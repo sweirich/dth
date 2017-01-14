@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTSyntax #-}
-{-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes #-}
+{-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes, 
+    PolyKinds #-}
 {-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
@@ -124,11 +125,10 @@ ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
 ralt r1 r2                 = Ralt r1 r2
 
 -- convenience function for marks
--- ????
---rmark :: forall a. KnownSymbol a => R -> R
---rmark r = rmarkSing (symbolVal (Proxy :: Proxy a)) r
-
-rmarkSing :: KnownSymbol n => proxy n -> R -> R 
+rmark :: forall a. KnownSymbol (a :: Symbol) => R -> R
+rmark = rmarkSing (Proxy :: Proxy a)
+      
+rmarkSing :: forall n proxy. KnownSymbol (n :: Symbol) => proxy n -> R -> R 
 rmarkSing n r = rmarkInternal (symbolVal n) "" r
 
 rmarkInternal :: String -> String -> R -> R 
@@ -139,7 +139,6 @@ rmarkInternal n w r = Rmark n w r
 -- empty* ~> empty
 rstar :: R -> R
 rstar (Rstar s) = Rstar s
---rstar r | isVoid r = rempty
 rstar r | isEmpty r = rempty
 rstar s = Rstar s
 
@@ -156,8 +155,20 @@ rchar :: Char -> R
 rchar c = Rchar (Set.singleton c)
 
 -- completeness
-rchars :: Set Char -> R
-rchars s = if Set.null s then error "nonempty!" else Rchar s
+rchars :: [Char] -> R
+rchars = Rchar . Set.fromList
+
+rnot :: [Char] -> R 
+rnot = Rnot . Set.fromList
+
+ropt :: R -> R
+ropt = ralt rempty
+
+rplus :: R -> R 
+rplus r = r `rseq` rstar r
+
+rany :: R
+rany = Rany
 
 
 ------------------------------------------------------
@@ -171,12 +182,12 @@ isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
+-- and DOES NOT include any marks?
 isEmpty :: R -> Bool
 isEmpty Rempty         = True
 isEmpty (Rseq r1 r2)   = isEmpty r1 && isEmpty r2
 isEmpty (Ralt r1 r2)   = isEmpty r1 && isEmpty r2
 isEmpty (Rstar r)      = isEmpty r
-isEmpty (Rmark ps s r) = isEmpty r
 isEmpty _ = False
 
 ------------------------------------------------------
@@ -216,10 +227,9 @@ nullable (Rnot cs)      = False
 -- regular expression derivative function
 deriv :: R -> Char -> R
 deriv Rempty        c = Rvoid
-deriv (Rseq r1 r2)  c | nullable r1 =
+deriv (Rseq r1 r2)  c =
      ralt (rseq (deriv r1 c) r2) 
           (rseq (markEmpty r1) (deriv r2 c))
-deriv (Rseq r1 r2)  c = rseq (deriv r1 c) r2
 deriv (Ralt r1 r2)  c = ralt (deriv r1 c) (deriv r2 c)
 deriv (Rstar r)     c = rseq (deriv r c) (rstar r)
 deriv Rvoid         c = Rvoid

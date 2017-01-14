@@ -7,7 +7,7 @@
 module RegexpParser(module Regexp, re) where
 
 
--- this QQ works with all three interfaces
+-- this QQ works with both interfaces
 -- because it generates the output at compile time
 --import Regexp as Regexp
 import RegexpDependent as Regexp
