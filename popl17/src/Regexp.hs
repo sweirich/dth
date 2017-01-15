@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTSyntax #-}
 {-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes, 
-    PolyKinds #-}
+    PolyKinds, DataKinds #-}
 {-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
@@ -267,14 +267,22 @@ instance Show Dict  where
 
 instance Show R  where
   show Rempty = "ε"                                            
-  show Rvoid  = "∅"   
+  show Rvoid  = "ϕ"   
   show (Rseq r1 r2) = show r1 ++ show r2
   show (Ralt r1 r2) = show r1 ++ "|" ++ show r2
   show (Rstar r)    = "(" ++ show r  ++ ")*"
-  show (Rchar cs) = if (Set.size cs == 1) then (Set.toList cs)
-                   else if cs == (Set.fromList ['0' .. '9']) then "\\d"
-                   else if cs == (Set.fromList [' ', '-', '.']) then "\\w"
-                   else "[" ++ Set.toList cs ++ "]"
+  show (Rchar cs) = if (Set.size cs == 1) then escape (head (Set.toList cs))
+                   else if cs == (Set.fromList chars_digit) then "\\d"
+                   else if cs == (Set.fromList chars_whitespace) then "\\s"
+                   else if cs == (Set.fromList chars_word) then "\\w"
+                   else "[" ++ concatMap escape (Set.toList cs) ++ "]"
+     where
+       chars_whitespace = " \t\n\r\f\v"
+       chars_digit      = ['0' .. '9']
+       chars_word       = ('_':['a' .. 'z']++['A' .. 'Z']++['0' .. '9'])
+       specials         = ".[{}()\\*+?|^$"
+       escape c         = if c `elem` specials then "\\" ++ [c] else "c"
+
   show (Rmark n w r)  = "(?P<" ++ n ++ ":" ++ w ++ ">" ++ show r ++ ")"
   show (Rany) = "."
   show (Rnot cs) = "[^" ++ show cs ++ "]"
