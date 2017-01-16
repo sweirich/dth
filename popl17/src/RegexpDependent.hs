@@ -431,7 +431,7 @@ data R (s :: U) where
   Rchar  :: Set Char -> R Empty
   Rany   :: R Empty
   Rnot   :: Set Char -> R Empty
-  Rmark  :: (Wf s) => Π n -> String -> R s -> R (Merge (One n) s)
+  Rmark  :: (Wf s) => Sing n -> String -> R s -> R (Merge (One n) s)
 
 -------------------------------------------------------------------------
 -- smart constructors
@@ -561,8 +561,8 @@ deriv :: forall n. Wf n => R n -> Char -> R n
 deriv Rempty       c   = Rvoid
 deriv (Rseq r1 r2) c   =
       -- use raltSame instead of ralt for
-      -- speedier optimization. We know two sides
-      -- capture the same groups
+      -- speed. We know the two sides
+      -- capture the same groups here
      raltSame (rseq (deriv r1 c) r2)
               (rseq (markEmpty r1) (deriv r2 c))
 deriv (Ralt r1 r2) c   = ralt (deriv r1 c) (deriv r2 c)

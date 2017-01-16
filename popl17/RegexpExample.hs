@@ -13,12 +13,23 @@ import RegexpParser
 import Data.Maybe
 import GHC.TypeLits
 
-path  = [re|/?((?P<d>[^/]+)/)*(?P<b>[^\./]+)(?P<e>\..*)?|]
+
+
+
+       
+path  = [re|/?((?P<dirs>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
 
 filename = "dth/popl17/Regexp.hs"
 
 
+result = match path filename
 
+dict   = fromJust result
+
+bn     = get @"base" dict
+ds     = get @"dirs" dict
+-- bad    = get @"name" dict       
+       
 
 
 
@@ -47,9 +58,4 @@ rpath = ropt (rchars "/") `rseq`
         ropt (rmark @"e"  ((rchars ".") `rseq` (rstar rany)))
 
 
----------------------------------------------------------
-      
-files = ["/Users/sweirich/github/dth/popl17/RegexpExample.hs", 
-         "/Users/sweirich/github/dth/popl17/influence.pptx",
-         "/Users/sweirich/github/dth/popl17/LICENSE"]
 
