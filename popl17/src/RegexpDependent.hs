@@ -128,7 +128,7 @@ type family FindH (n :: Symbol) (s :: U) (s2 :: U) :: Index n o s where
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
-     TypeError (Text "Hey POPL17!  I couldn't find group name '" :<>:
+     TypeError (Text "Hey POPL17!  I couldn't find a group named '" :<>:
                 Text n :<>: Text "' in" :$$:
                 Text "    {" :<>: ShowU s2 :<>: Text "}")
 

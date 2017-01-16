@@ -2,13 +2,22 @@
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 -- | some simple unit test cases for the regular expression module (no parser)
+-- If you happen to think that it is impossible to have bugs in Haskell programs,
+-- and especially not dependently-typed Haskell programs, you are sorely mistaken.
+-- I went through so many correctness and performance bugs in this implementation
+-- that I was tempted to give up entirely. I hope I got them all, but if I didn't,
+-- caveat emptor.
 module RegexpTest where
 
 import RegexpDependent
+-- The non-dependently-typed Regexp module exports the same interface as the
+-- RegexpDependent version. This helped me figure out the semantics of the
+-- system that I wanted before adding dependent types.
+
+       
 import qualified Data.Set as Set
 
 import Test.HUnit
-
 import Data.Maybe
 
 ----------------------------------------------------------
@@ -29,6 +38,7 @@ r8 = rmark @"x" (rstar (rchar 'a'))
 
 r9 = rmark @"c" (rseq (rstar (rchar 'c')) r6)
 
+-- Our implementation is greedy like Posix.
 greedy = rstar (rmark @"a" (rchar 'a')
                 `ralt` (rmark @"ab" (rchar 'a' `rseq` rchar 'b'))
                 `ralt` (rmark @"b" (rchar 'b')))
@@ -42,6 +52,7 @@ r10 = (rstar Rany) `rseq` rmark @"a" (rchar 'a')
 r11 = (rstar (rmark @"n" (rchar 'a')) `rseq` (rchar '}'))
 
 r12 =  ((ralt rempty (rmark @"n" (rchar 'a'))) `rseq` (rchar 'b'))
+    
 r13 =  ((ralt (rmark @"n" (rchar 'a')) rempty) `rseq` (rchar 'b'))
 
 main = runTestTT $
@@ -104,11 +115,10 @@ ph = getField @"phone" result
 -- bad = getField @"email" result
 
 -------------------------------------------------------------------------
--- For RegexpOcc also check out the more refined types that are possible:
+-- For RegexpDependent also check out the more refined types that are possible:
 
---nm2 = getFieldD @"name" $ fromJust (match entry "Stephanie")
---ph2 = getFieldD @"phone" $ fromJust (match entry "Stephanie")
-
+--nm2 = get @"name" $ fromJust (match entry "Stephanie")
+--ph2 = get @"phone" $ fromJust (match entry "Stephanie")
 
 -------------------------------------------------------------------------
 
@@ -118,14 +128,4 @@ difficult = rstar (ralt (rchar 'a') (rchar 'a' `rseq` rchar 'a'))
 
 sloooow =  match difficult "aaaaaaaaaaaaaaaaaaaaaaaab"
 
-
-
-{-
-InternalDate = re.compile(r'INTERNALDATE "'
-        r'(?P<day>[ 123][0-9])-(?P<mon>[A-Z][a-z][a-z])-'
-        r'(?P<year>[0-9][0-9][0-9][0-9])'
-        r' (?P<hour>[0-9][0-9]):(?P<min>[0-9][0-9]):(?P<sec>[0-9][0-9])'
-        r' (?P<zonen>[-+])(?P<zoneh>[0-9][0-9])(?P<zonem>[0-9][0-9])'
-        r'"')
--}
 

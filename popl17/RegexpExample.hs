@@ -17,19 +17,26 @@ import GHC.TypeLits
 
 
        
-path  = [re|/?((?P<dirs>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
+path  = [re|/?((?P<dir>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
 
 filename = "dth/popl17/Regexp.hs"
 
-
 result = match path filename
 
+
+
+
+
+
+
+       
 dict   = fromJust result
 
-bn     = get @"base" dict
-ds     = get @"dirs" dict
--- bad    = get @"name" dict       
-       
+x      = get @"base" dict
+y      = get @"dir" dict
+      
+
+
 
 
 
