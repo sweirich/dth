@@ -2,7 +2,7 @@
 {-# LANGUAGE DataKinds, KindSignatures, ScopedTypeVariables, 
     TypeApplications, AllowAmbiguousTypes, TypeOperators #-}
 
--- For best results in ghci
+-- For best results for playing in ghci
 --  :set -XTypeApplications
 --  :set -XDataKinds
 --  :set -XQuasiQuotes
@@ -10,24 +10,32 @@
 module RegexpExample where
 
 import RegexpParser
-import Data.Maybe
-import GHC.TypeLits
+import Data.Maybe (fromJust)
 
 
 
 
        
-path  = [re|/?((?P<dir>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
+path     = [re|/?((?P<d>[^/]+)/)*(?P<b>[^\./]+)(?P<e>\..*)?|]
 
 filename = "dth/popl17/Regexp.hs"
 
-result = match path filename
+result   = match path filename
+
+       
+
+
+
+       
+       
 dict   = fromJust result
 
-x      = get @"base" dict
-y      = get @"dir" dict
-z      = get @"ext" dict
+x      = get @"b" dict
+y      = get @"d" dict
+z      = get @"e" dict
 
+
+       
 
 
 
@@ -51,12 +59,9 @@ z      = get @"ext" dict
 
 
          
----------------------------------------------------------         
 
-rpath = ropt (rchars "/") `rseq`
-        rstar (rmark @"d" (rplus (rnot "/")) `rseq` (rchars "/")) `rseq`
-        rmark @"b" (rplus (rnot "/.")) `rseq`
-        ropt (rmark @"e"  ((rchars ".") `rseq` (rstar rany)))
+
+
 
 
 
