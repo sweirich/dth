@@ -1,11 +1,11 @@
 {-# LANGUAGE TypeOperators, DataKinds, KindSignatures, TypeFamilies,
-    PolyKinds, TypeInType, UndecidableInstances, GADTs, RankNTypes,
+    PolyKinds, TypeInType, UndecidableInstances, GADTs, 
     ScopedTypeVariables, InstanceSigs, TypeApplications,
-    TypeFamilyDependencies, FunctionalDependencies,
+    TypeFamilyDependencies, 
     TemplateHaskell, AllowAmbiguousTypes #-}
 
 {-# LANGUAGE FlexibleContexts, TypeSynonymInstances, FlexibleInstances, 
-    MultiParamTypeClasses, ConstraintKinds #-}
+    MultiParamTypeClasses, FunctionalDependencies #-}
 
 {-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -fprint-expanded-synonyms #-}
@@ -34,22 +34,51 @@ type Π n = Sing n
 -------------------------------------------------------------------------
         
 $(singletons [d|
-    
-  -- Note: Ord automatically defines "max", used in alt below
+  -- Note: deriving Ord automatically defines "max", used in alt below
+  -- that's super cool!
   data Occ = Once | Opt | Many deriving (Eq, Ord, Show)
   |])
 
-type U = [(Symbol,Occ)]
+type SM = [(Symbol,Occ)]
+
+type Empty = '[]
+     
+type One s = '[ '(s,Once) ]
+
+type family Merge (a :: SM) (b :: SM) :: SM where
+   Merge s  '[] = s    
+   Merge '[] s  = s    
+   Merge ('(n1,o1):t1) ('(n2,o2):t2) =      
+     If (n1 :== n2) ('(n1, 'Many) : Merge t1 t2)         
+        (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))               
+                        ('(n2, o2) : Merge ('(n1,o1):t1) t2))
+
+type family Alt (a :: SM) (b :: SM) :: SM where
+   Alt '[] '[] = '[]
+   Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
+   Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
+   Alt ('(n1,o1):t1) ('(n2,o2):t2) =      
+     If (n1 :== n2) ('(n1, Max o1 o2) : Alt t1 t2)         
+        (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))               
+                        ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
+
+type family Repeat (a :: SM) :: SM where
+   Repeat '[] = '[]
+   Repeat ( '(n,o) : t) = '(n, Many) : Repeat t
+     
+{-     
+-- Could have also used the Singletons library to use term level notation
+-- to define these operations. 
 
 $(singletons [d|
 
-  empty :: U
+  empty :: SM
   empty = []
 
-  one :: Symbol -> U
+  one :: Symbol -> SM
   one s = [(s,Once)] 
   
-  merge :: U -> U -> U
+  merge :: SM -> SM -> SM
   merge m  [] = m
   merge [] m  = m
   merge (e1@(s1,o1):t1) (e2@(s2,o2):t2) =
@@ -57,28 +86,29 @@ $(singletons [d|
     else if s1 <= s2 then e1 : merge t1 (e2:t2)
       else e2 : merge (e1:t1) t2
   
-  alt :: U -> U -> U
+  alt :: SM -> SM -> SM
   alt [] [] = []
-  alt ((s1,o1):t1) [] = (s1, max Opt o1): alt t1 []
-  alt [] ((s2,o2):t2) = (s2, max Opt o2): alt [] t2
-  alt ((s1,o1):t1)((s2,o2):t2) =
-      if s1 == s2 then (s1, max o1 o2) : alt t1 t2
-      else if s1 <= s2 then (s1, max Opt o1) : alt t1 ((s2,o2):t2)
-           else (s2, max Opt o2) : alt ((s1,o1):t1) t2
+  alt ((n1,o1):t1) [] = (n1, max Opt o1): alt t1 []
+  alt [] ((n2,o2):t2) = (n2, max Opt o2): alt [] t2
+  alt ((n1,o1):t1)((n2,o2):t2) =
+      if n1 == n2 then (n1, max o1 o2) : alt t1 t2
+      else if n1 <= n2 then (n1, max Opt o1) : alt t1 ((n2,o2):t2)
+           else (n2, max Opt o2) : alt ((n1,o1):t1) t2
 
-  repeat :: U -> U
+  repeat :: SM -> SM
   repeat [] = []
-  repeat ((s,o):t) = ((s, Many):repeat t)
+  repeat ((n,o):t) = ((n, Many):repeat t)
 
   |])
-
+-}
+        
 -------------------------------------------------------------------------
 
-type Result (s :: U) = Maybe (Dict s)
+type Result (s :: SM) = Maybe (Dict s)
 
 -- A data structure indexed by a type-level map
 -- Keeps the entries in sorted order by key   
-data Dict :: U -> Type where
+data Dict :: SM -> Type where
    Nil  :: Dict '[]
    (:>) :: Entry a -> Dict tl -> Dict (a : tl)
 
@@ -89,7 +119,7 @@ infixr 5 :>
 -- We only store the values, and the types of the values
 -- are determined by the type family below.
 data Entry :: (Symbol,Occ) -> Type where
-   Entry :: forall s o. OccType o -> Entry '(s,o)
+   E :: forall s o. OccType o -> Entry '(s,o)
    
 -- OccType is an *injective* type family. From the output we
 -- can determine the input during type inference.
@@ -98,39 +128,40 @@ type family OccType (o :: Occ) = (res :: Type) | res -> o where
   OccType Opt  = Maybe String
   OccType Many = [String]
 
--- type inferred to be
+-- type inferred to be (using injectivity above for OccType)
 -- example_dict :: Dict '['("b", 'Once), '("d", 'Many), '("e", 'Opt)]
-example_dict = Entry @"b" "Regexp" :>
-               Entry @"d" ["dth", "popl17"] :>
-               Entry @"e" (Just "hs") :> Nil
+example_dict = E @"b" "Regexp" :>
+               E @"d" ["dth", "popl17"] :>
+               E @"e" (Just "hs") :> Nil
 
 -------------------------------------------------------------------------
 -- Accessor function for dictionaries (get)
 
-type family ShowU (m :: U) :: ErrorMessage where
-  ShowU '[]         = Text ""
-  ShowU '[ '(a,o) ] = Text a
-  ShowU ('(a,o): m) = Text a :<>: Text ", " :<>: ShowU m
+type family ShowSM (m :: SM) :: ErrorMessage where
+  ShowSM '[]         = Text ""
+  ShowSM '[ '(a,o) ] = Text a
+  ShowSM ('(a,o): m) = Text a :<>: Text ", " :<>: ShowSM m
 
 -- A proof that a particular name appears in the domain
-data Index (n :: Symbol)  (o :: Occ) (s :: U) where
+data Index (n :: Symbol)  (o :: Occ) (s :: SM) where
   DH :: Index n o ('(n,o):s)
   DT :: Index n o s -> Index n o (t:s)
 
 -- Find a name n in s, if it exists (and return a proof!),
--- or produce TypeError  
-type family Find (n :: Symbol) (s :: U) :: Index n o s where
+-- or produce TypeError
+-- We need TypeInType to return a GADT from a type family
+type family Find (n :: Symbol) (s :: SM) :: Index n o s where
   Find n s = FindH n s s
 
 -- The second argument is the original association list
 -- Provided so that we can create a more informative error message
-type family FindH (n :: Symbol) (s :: U) (s2 :: U) :: Index n o s where
+type family FindH (n :: Symbol) (s :: SM) (s2 :: SM) :: Index n o s where
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
      TypeError (Text "Hey POPL17!  I couldn't find a group named '" :<>:
                 Text n :<>: Text "' in" :$$:
-                Text "    {" :<>: ShowU s2 :<>: Text "}")
+                Text "    {" :<>: ShowSM s2 :<>: Text "}")
 
 -- Look up an entry in the dictionary, given an index for a name
 -- The functional dependency guides type inference
@@ -139,7 +170,7 @@ class Get (p :: Index n o s) | n s -> o where
 
 -- The entry we want is here!
 instance Get DH where
-  getp (Entry v :> _ ) = v
+  getp (E v :> _ ) = v
 
 -- Need to keep looking
 instance (Get l) => Get (DT l) where
@@ -186,14 +217,14 @@ instance (SingI n, SingI o) => Show (Entry '(n,o)) where
   show = showEntry sing sing
 
 instance SingI s => Show (Dict s) where
-  show xs = "{" ++ show' sing xs where
-    show' :: Π xs -> Dict xs -> String
-    show' SNil Nil = "}"
-    show' (SCons (STuple2 sn so) pp) (e :> Nil) = showEntry sn so e ++ "}"
-    show' (SCons (STuple2 sn so) pp) (e :> xs)  = showEntry sn so e ++ "," ++ show' pp xs
+  show xs = "{" ++ showDict sing xs where
+    showDict :: Π xs -> Dict xs -> String
+    showDict SNil Nil = "}"
+    showDict (SCons (STuple2 sn so) pp) (e :> Nil) = showEntry sn so e ++ "}"
+    showDict (SCons (STuple2 sn so) pp) (e :> xs)  = showEntry sn so e ++ "," ++ showDict pp xs
 
 showEntry :: Π n -> Π o -> Entry '(n,o) -> String
-showEntry sn so (Entry ss) = show sn ++ "=" ++ showData so ss where
+showEntry sn so (E ss) = show sn ++ "=" ++ showData so ss where
     showData :: Π o -> OccType o -> String
     showData SOnce ss = show ss
     showData SOpt  ss = show ss
@@ -208,11 +239,11 @@ combine SNil SNil Nil Nil = Nil
 combine SNil _ Nil b = b
 combine _ SNil b Nil = b
 combine s1@(SCons (STuple2 ps so1) r1)  s2@(SCons (STuple2 pt so2) r2)
-        (e1@(Entry ss) :> t1)          (e2@(Entry ts) :> t2) =
+        (e1@(E ss) :> t1)          (e2@(E ts) :> t2) =
   case ps %:== pt of
-   STrue  -> Entry (toMany so1 ss ++ toMany so2 ts) :> combine r1 r2 t1 t2
+   STrue  -> E (toMany so1 ss ++ toMany so2 ts) :> combine r1 r2 t1 t2
      where
-       -- note that OccType Many is [String]
+       -- note that 'OccType Many' is [String]
        toMany :: Π o -> OccType o -> OccType Many
        toMany SOnce  s       = [s]
        toMany SOpt  (Just s) = [s]
@@ -223,7 +254,7 @@ combine s1@(SCons (STuple2 ps so1) r1)  s2@(SCons (STuple2 pt so2) r2)
      STrue  -> e1 :> combine r1 s2 t1 (e2 :> t2)
      SFalse -> e2 :> combine s1 r2 (e1 :> t1) t2 
 
--- combine the two sets together
+-- combine the two results together, when they both are defined
 both :: forall s1 s2. (SingI s1, SingI s2) => Result s1 -> Result s2 -> Result (Merge s1 s2)
 both (Just xs) (Just ys) = Just $ combine (sing :: Sing s1) (sing :: Sing s2) xs ys
 both _         _         = Nothing
@@ -235,9 +266,9 @@ defOcc SOpt  = Nothing
 defOcc SMany = []
 
 -- weaken a value to its maximum
--- This was a nice one to define.  I made it an id function for every case,
+-- This was a not so bad to define.  I made it an id function for every case,
 -- then used the four type errors to figure out which lines to change.
--- Agda-like splitting would have helped
+-- Agda-like splitting would have helped, though.
 glueOccLeft :: Π o1 -> Π o2 -> OccType o2 -> OccType (Max o1 o2)
 glueOccLeft SOnce SOnce m = m
 glueOccLeft SOnce SOpt  m = m
@@ -251,7 +282,8 @@ glueOccLeft SMany SOpt  Nothing  = []
 glueOccLeft SMany SMany m = m
 
 -- We don't have a communitivity property for Max. If we did
--- we wouldn't have to define both Left and Right versions.
+-- we wouldn't have to define both Left and Right versions of
+-- this function.
 glueOccRight :: Π o1 -> OccType o1 -> Π o2 -> OccType (Max o1 o2)
 glueOccRight SOnce m SOnce = m
 glueOccRight SOnce m SOpt  = Just m
@@ -264,120 +296,64 @@ glueOccRight SMany m SOnce = m
 glueOccRight SMany m SOpt  = m
 glueOccRight SMany m SMany = m
 
+-- Weaken a dictionary by converting all of its entries
+-- to 'Max Opt o' versions.
 glueLeft :: Π s1 -> Π s2 -> Dict s2 -> Dict (Alt s1 s2)
 glueLeft SNil SNil Nil = Nil
-glueLeft SNil (s2@(SCons (STuple2 pt so2) st2))(e2@(Entry ts) :> t2) =
-  Entry tocc :> glueLeft SNil st2 t2 where
+glueLeft SNil (s2@(SCons (STuple2 pt so2) st2))(e2@(E ts) :> t2) =
+  E tocc :> glueLeft SNil st2 t2 where
     tocc = glueOccLeft SOpt so2 ts
 glueLeft (SCons (STuple2 ps so) t) SNil Nil =
-  Entry (defOcc so) :> glueLeft t SNil Nil
+  E (defOcc so) :> glueLeft t SNil Nil
 glueLeft (SCons e1@(STuple2 ps so1)  t1)
-         (s2@(SCons (STuple2 pt so2) st2))(e2@(Entry ts) :> t2) =
+         (s2@(SCons (STuple2 pt so2) st2))(e2@(E ts) :> t2) =
   case ps %:== pt of
-   STrue -> Entry tocc :> glueLeft t1 st2 t2 where
+   STrue -> E tocc :> glueLeft t1 st2 t2 where
               tocc = glueOccLeft so1 so2 ts
    SFalse -> case ps %:<= pt of
-     STrue  -> Entry tocc :> glueLeft t1 s2 (e2 :> t2) where
+     STrue  -> E tocc :> glueLeft t1 s2 (e2 :> t2) where
                  tocc = defOcc so1 
-     SFalse -> Entry tocc :> glueLeft (SCons e1 t1) st2 t2 where
+     SFalse -> E tocc :> glueLeft (SCons e1 t1) st2 t2 where
                  tocc = glueOccLeft SOpt so2 ts
                  
 glueRight :: Π s1 -> Dict s1 -> Π s2 -> Dict (Alt s1 s2)
 glueRight SNil Nil SNil = Nil
-glueRight (SCons (STuple2 pt so2) st2) (e2@(Entry ts) :> t2) SNil =
-  Entry tocc :> glueRight st2 t2 SNil where
+glueRight (SCons (STuple2 pt so2) st2) (e2@(E ts) :> t2) SNil =
+  E tocc :> glueRight st2 t2 SNil where
     tocc = glueOccLeft SOpt so2 ts
 glueRight SNil Nil (SCons (STuple2 ps so) t) =
-  Entry  (defOcc so) :> glueRight SNil Nil t
-glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(Entry ss) :> t1) 
+  E  (defOcc so) :> glueRight SNil Nil t
+glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(E ss) :> t1) 
           (SCons e2@(STuple2 pt so2) t2) =
   case ps %:== pt of
-    STrue  -> Entry tocc :> glueRight st1 t1 t2 where
+    STrue  -> E tocc :> glueRight st1 t1 t2 where
                 tocc = glueOccRight so1 ss so2 
     SFalse -> case ps %:<= pt of
-      STrue  -> Entry tocc :> glueRight st1 t1 (SCons e2 t2) where
+      STrue  -> E tocc :> glueRight st1 t1 (SCons e2 t2) where
                   tocc = glueOccLeft SOpt so1 ss
-      SFalse -> Entry tocc :> glueRight s1 (e1 :> t1) t2 where
+      SFalse -> E tocc :> glueRight s1 (e1 :> t1) t2 where
                   tocc = defOcc so2 
 
-{-  
-maxAssoc :: Π (o1 :: Occ) -> Π o2 -> Π o3 -> Max o1 (Max o2 o3) :~: Max (Max o1 o2) o3
-maxAssoc SOnce SOnce SOnce = Refl
-maxAssoc SOnce SOpt  SOnce = Refl
-maxAssoc SOnce SMany SOnce = Refl
-maxAssoc SOpt  SOnce SOnce = Refl
-maxAssoc SOpt  SOpt   SOnce = Refl
-maxAssoc SOpt  SMany  SOnce = Refl
-maxAssoc SMany SOnce  SOnce = Refl
-maxAssoc SMany SOpt  SOnce  = Refl            
-maxAssoc SMany SMany  SOnce = Refl                        
-maxAssoc SOnce SOnce SOpt = Refl
-maxAssoc SOnce SOpt  SOpt = Refl
-maxAssoc SOnce SMany SOpt = Refl
-maxAssoc SOpt  SOnce SOpt = Refl
-maxAssoc SOpt  SOpt  SOpt = Refl
-maxAssoc SOpt  SMany SOpt = Refl
-maxAssoc SMany SOnce SOpt = Refl
-maxAssoc SMany SOpt  SOpt = Refl            
-maxAssoc SMany SMany SOpt = Refl                        
-maxAssoc SOnce SOnce SMany = Refl
-maxAssoc SOnce SOpt  SMany = Refl
-maxAssoc SOnce SMany SMany = Refl
-maxAssoc SOpt  SOnce SMany = Refl
-maxAssoc SOpt  SOpt  SMany = Refl
-maxAssoc SOpt  SMany SMany = Refl
-maxAssoc SMany SOnce SMany = Refl
-maxAssoc SMany SOpt  SMany = Refl            
-maxAssoc SMany SMany SMany = Refl                        
 
-altAssoc :: Π s1 -> Π s2 -> Π s3 -> Alt s1 (Alt s2 s3) :~: Alt (Alt s1 s2) s3
-altAssoc SNil SNil SNil = Refl
-altAssoc SNil SNil (SCons (STuple2 _ _) tl) | Refl <- altAssoc SNil SNil tl = Refl
--}
-         
-  {-
-maxCommutes :: Π (o1 :: Occ) -> Π o2 -> Max o1 o2 :~: Max o2 o1
-maxCommutes SOnce SOnce = Refl
-maxCommutes SOnce SOpt  = Refl
-maxCommutes SOnce SMany = Refl
-maxCommutes SOpt  SOnce = Refl
-maxCommutes SOpt  SOpt  = Refl
-maxCommutes SOpt  SMany = Refl
-maxCommutes SMany SOnce = Refl
-maxCommutes SMany SOpt  = Refl            
-maxCommutes SMany SMany = Refl                        
-  
-altCommutes :: Π s1 -> Π s2 -> Alt s1 s2 :~: Alt s2 s1
-altCommutes SNil SNil = Refl
-altCommutes SNil (SCons (STuple2 _ _) tl) | Refl <- altCommutes SNil tl = Refl
-altCommutes (SCons (STuple2 _ _) tl) SNil | Refl <- altCommutes SNil tl = Refl
-altCommutes l1@(SCons (STuple2 ps o1) tl1) l2@(SCons (STuple2 pt o2) tl2) =
-  case ps %:== pt of
-    STrue  -> case (altCommutes tl1 tl2, maxCommutes o1 o2) of (Refl,Refl) -> Refl
-    SFalse -> undefined {- case ps %:<= pt of
-      STrue  -> case altCommutes tl1 l2 of Refl -> Refl
-      SFalse -> case altCommutes l1 tl2 of Refl -> Refl -}
--}            
-
-            
-  
 -- take the first successful result
 -- note that we need to merge in empty labels for the ones that may
 -- not be present in the successful version
 first :: forall s1 s2. (SingI s1, SingI s2) =>
                       Result s1 -> Result s2 -> Result (Alt s1 s2)
 first Nothing Nothing  = Nothing                   
-first Nothing (Just y) = Just (glueLeft (sing @U @s1) (sing @U @s2) y)
-first (Just x) _       = Just (glueRight (sing @U @s1) x (sing @U @s2))
+first Nothing (Just y) = Just (glueLeft (sing :: Sing s1) sing y)
+first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
 
 -- A "default" Dict
 -- [] for each name in the domain of the set
 -- Needs a runtime representation of the set for construction
-nils :: forall s n. SingI s => Dict (Repeat s)
+-- Must use explicit type application when called because this function
+-- has a highly ambiguous type.
+nils :: forall s. SingI s => Dict (Repeat s)
 nils = nils' (sing :: Sing s) where 
     nils' :: Π ss -> Dict (Repeat ss)
     nils' SNil                    = Nil
-    nils' (SCons (STuple2 _ _) r) = Entry [] :> nils' r
+    nils' (SCons (STuple2 _ _) r) = E [] :> nils' r
 
     
        
@@ -397,17 +373,18 @@ class (m ~ Alt m m,
        Merge m (Repeat m) ~ Repeat m,
        -- they also have runtime representations
        SingI m) =>
-       Wf (m :: U) 
+       Wf (m :: SM) 
 
--- note the superclass constraints are proved automatically
--- by Haskell's constraint solver
-instance Wf '[] 
+
+-- proof of all base cases
+instance Wf '[]
+-- proof of all inductive steps
 instance (SingI n, WfOcc o, Wf s) => Wf ('(n, o) : s) 
 
          
 -- this constraint rules out "infinite" sets of the form
 -- (which has a coinductive proof of the merge property?)
-type family T :: U where
+type family T :: SM where
   T = '("a", Once) : T
 
 testWf :: Wf a => ()
@@ -419,10 +396,10 @@ x1 = testWf @'[ '("a", Once), '("b", Opt), '("c", Many) ]
   
 -------------------------------------------------------------------------
 
--- Our GADT, indexed by the set of pattern variables
--- Note that we require all sets to be Wf. (Empty is known to be.)
+-- Our GADT, indexed by the set of pattern variables Note that we require all
+-- sets, except for the index of Rvoid, to be Wf. (Empty is known to be.)
 
-data R (s :: U) where
+data R (s :: SM) where
   Rempty :: R Empty 
   Rvoid  :: R s
   Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
@@ -480,11 +457,11 @@ rstar s         = Rstar s
 -- convenience function for marks
 -- MUST use explicit type application for 'n' to avoid ambiguity
 rmark :: forall n s. (KnownSymbol n, Wf s) => R s -> R (Merge (One n) s)
-rmark = rmarkSing (sing @Symbol @n)
+rmark = rmarkSing (sing :: Sing n)
 
 rmarkSing :: forall n s proxy.
    (KnownSymbol n, Wf s) => proxy n -> R s -> R (Merge (One n) s)
-rmarkSing n = Rmark (sing @Symbol @n) ""
+rmarkSing n = Rmark (sing :: Sing n) ""
 
 -- Not the most general type. However, if rvoid appears in a static
 -- regexp, it should have index 'Empty'
@@ -515,9 +492,8 @@ rany = Rany
 ------------------------------------------------------
 isVoid :: R s -> Bool
 isVoid Rvoid          = True
-isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
-isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
-isVoid (Rstar r)      = False
+isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2  
+isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2  
 isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
@@ -528,11 +504,11 @@ isEmpty Rempty        = Just Refl
 isEmpty (Rstar r)     | Just Refl <- isEmpty r = Just Refl
 isEmpty (Ralt r1 r2)  | Just Refl <- isEmpty r1, Just Refl <- isEmpty r2 = Just Refl
 isEmpty (Rseq r1 r2)  | Just Refl <- isEmpty r1, Just Refl <- isEmpty r2 = Just Refl
-isEmpty _         = Nothing
+isEmpty _             = Nothing
 
 
 markResult :: Π n -> String -> Result (One n)
-markResult n s = Just (Entry s :> Nil)
+markResult n s = Just (E s :> Nil)
 
 
        
@@ -646,9 +622,9 @@ contains r s = case pextract r s of
 -------------------------------------------------------------------------
 -- Show instances for regular expressions
 
-instance Show (Sing (s :: U)) where
+instance Show (Sing (s :: SM)) where
   show r = "[" ++ show' r where
-    show' :: Sing (ss :: U) -> String
+    show' :: Sing (ss :: SM) -> String
     show' SNil = "]"
     show' (SCons (STuple2 sn so) ss) = show sn ++ "," ++ show' ss
 instance SingI n => Show (R n) where

@@ -99,7 +99,7 @@ alphaC = Rchar (Set.fromList ['A' .. 'Z' ])
 
 name   = rmark @"name" (rseq alphaC (rstar alpha))
 
-entry  = name `rseq` rstar opt_dash `rseq` (ralt rempty phone) 
+entry  = (name `rseq` rstar opt_dash `rseq` (ralt rempty phone))
 
 pbook  = rstar (rchar '(' `rseq` (rmark @"entry" entry) `rseq` rchar ')')
 
