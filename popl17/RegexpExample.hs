@@ -16,24 +16,17 @@ import Data.Maybe (fromJust)
 
 
        
-path     = [re|/?((?P<d>[^/]+)/)*(?P<b>[^\./]+)(?P<e>\..*)?|]
+path = [re|/?((?P<d>[^/]+)/)*(?P<b>[^\./]+)(?P<e>\..*)?|]
 
 filename = "dth/popl17/Regexp.hs"
 
 result   = match path filename
-
-       
-
-
-
-       
-       
 dict   = fromJust result
 
 x      = get @"b" dict
 y      = get @"d" dict
 z      = get @"e" dict
-
+w      = get @"f" dict
 
        
 
