@@ -1,10 +1,10 @@
 {-# LANGUAGE TypeOperators, DataKinds, KindSignatures, TypeFamilies,
-    PolyKinds, TypeInType, UndecidableInstances, GADTs, 
+    PolyKinds, TypeInType, UndecidableInstances, GADTs,
     ScopedTypeVariables, InstanceSigs, TypeApplications,
-    TypeFamilyDependencies, 
+    TypeFamilyDependencies,
     TemplateHaskell, AllowAmbiguousTypes #-}
 
-{-# LANGUAGE FlexibleContexts, TypeSynonymInstances, FlexibleInstances, 
+{-# LANGUAGE FlexibleContexts, TypeSynonymInstances, FlexibleInstances,
     MultiParamTypeClasses, FunctionalDependencies #-}
 
 {-# OPTIONS_GHC -fdefer-type-errors #-}
@@ -16,8 +16,8 @@ module RegexpDependent where
 import Data.Kind(Type)
 import Data.Type.Equality(TestEquality(..),(:~:)(..))
 
-import GHC.TypeLits       
-import Data.Singletons.TH   
+import GHC.TypeLits
+import Data.Singletons.TH
 import Data.Singletons.Prelude
 import Data.Singletons.TypeLits (Sing(..),
        Symbol(..),KnownSymbol(..),symbolVal)
@@ -32,7 +32,7 @@ import Data.List(foldl')
 -------------------------------------------------------------------------
 type Π n = Sing n
 -------------------------------------------------------------------------
-        
+
 $(singletons [d|
   -- Note: deriving Ord automatically defines "max", used in alt below
   -- that's super cool!
@@ -42,33 +42,33 @@ $(singletons [d|
 type SM = [(Symbol,Occ)]
 
 type Empty = '[]
-     
+
 type One s = '[ '(s,Once) ]
 
 type family Merge (a :: SM) (b :: SM) :: SM where
-   Merge s  '[] = s    
-   Merge '[] s  = s    
-   Merge ('(n1,o1):t1) ('(n2,o2):t2) =      
-     If (n1 :== n2) ('(n1, 'Many) : Merge t1 t2)         
-        (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))               
+   Merge s  '[] = s
+   Merge '[] s  = s
+   Merge ('(n1,o1):t1) ('(n2,o2):t2) =
+     If (n1 :== n2) ('(n1, 'Many) : Merge t1 t2)
+        (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))
                         ('(n2, o2) : Merge ('(n1,o1):t1) t2))
 
 type family Alt (a :: SM) (b :: SM) :: SM where
    Alt '[] '[] = '[]
    Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
    Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
-   Alt ('(n1,o1):t1) ('(n2,o2):t2) =      
-     If (n1 :== n2) ('(n1, Max o1 o2) : Alt t1 t2)         
-        (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))               
+   Alt ('(n1,o1):t1) ('(n2,o2):t2) =
+     If (n1 :== n2) ('(n1, Max o1 o2) : Alt t1 t2)
+        (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))
                         ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
 
 type family Repeat (a :: SM) :: SM where
    Repeat '[] = '[]
    Repeat ( '(n,o) : t) = '(n, Many) : Repeat t
-     
-{-     
+
+{-
 -- Could have also used the Singletons library to use term level notation
--- to define these operations. 
+-- to define these operations.
 
 $(singletons [d|
 
@@ -76,8 +76,8 @@ $(singletons [d|
   empty = []
 
   one :: Symbol -> SM
-  one s = [(s,Once)] 
-  
+  one s = [(s,Once)]
+
   merge :: SM -> SM -> SM
   merge m  [] = m
   merge [] m  = m
@@ -85,7 +85,7 @@ $(singletons [d|
     if s1 == s2 then (s1,Many) : merge t1 t2
     else if s1 <= s2 then e1 : merge t1 (e2:t2)
       else e2 : merge (e1:t1) t2
-  
+
   alt :: SM -> SM -> SM
   alt [] [] = []
   alt ((n1,o1):t1) [] = (n1, max Opt o1): alt t1 []
@@ -101,13 +101,13 @@ $(singletons [d|
 
   |])
 -}
-        
+
 -------------------------------------------------------------------------
 
 type Result (s :: SM) = Maybe (Dict s)
 
 -- A data structure indexed by a type-level map
--- Keeps the entries in sorted order by key   
+-- Keeps the entries in sorted order by key
 data Dict :: SM -> Type where
    Nil  :: Dict '[]
    (:>) :: Entry a -> Dict tl -> Dict (a : tl)
@@ -120,7 +120,7 @@ infixr 5 :>
 -- are determined by the type family below.
 data Entry :: (Symbol,Occ) -> Type where
    E :: forall s o. OccType o -> Entry '(s,o)
-   
+
 -- OccType is an *injective* type family. From the output we
 -- can determine the input during type inference.
 type family OccType (o :: Occ) = (res :: Type) | res -> o where
@@ -150,8 +150,10 @@ data Index (n :: Symbol)  (o :: Occ) (s :: SM) where
 -- Find a name n in s, if it exists (and return a proof!),
 -- or produce TypeError
 -- We need TypeInType to return a GADT from a type family
-type family Find (n :: Symbol) (s :: SM) :: Index n o s where
-  Find n s = FindH n s s
+--type family Find n s :: Index n o s where
+--  Find n s = FindH n s s
+
+type Find n s = (FindH n s s :: Index n o s)
 
 -- The second argument is the original association list
 -- Provided so that we can create a more informative error message
@@ -177,13 +179,13 @@ instance (Get l) => Get (DT l) where
   getp ( _ :> xs) = getp @_ @_ @_ @l xs
 
 
--- Generic interface to flexible records  
+-- Generic interface to flexible records
 -- This class will eventually be defined in Data.Record
 -- to support overloaded field names
 -- (though it will be called HasField and getField)
 class Has (x :: k) r a | x r -> a where
   get    :: r -> a
-  
+
 -- Instance for the Maybe in the result type
 instance (Has n u t) => Has n (Maybe u) (Maybe t) where
   get (Just x) = Just (get @n x)
@@ -205,8 +207,8 @@ getField (Just x) = gg (sing :: Π o) (getp @_ @_ @_ @(Find n s) x) where
      gg SOpt (Just s) = [s]
      gg SOpt Nothing  = []
      gg SMany s       = s
-getField Nothing  = [] 
-             
+getField Nothing  = []
+
 -------------------------------------------------------------------------
 -- Show instance for Dict
 
@@ -229,8 +231,8 @@ showEntry sn so (E ss) = show sn ++ "=" ++ showData so ss where
     showData SOnce ss = show ss
     showData SOpt  ss = show ss
     showData SMany ss = show ss
-          
-------------------------------------------------------  
+
+------------------------------------------------------
 -- Operations on dictionaries (mostly used in extract, see below)
 
 
@@ -249,10 +251,10 @@ combine s1@(SCons (STuple2 ps so1) r1)  s2@(SCons (STuple2 pt so2) r2)
        toMany SOpt  (Just s) = [s]
        toMany SOpt  Nothing  = []
        toMany SMany ss       = ss
-  
+
    SFalse -> case ps %:<= pt of
      STrue  -> e1 :> combine r1 s2 t1 (e2 :> t2)
-     SFalse -> e2 :> combine s1 r2 (e1 :> t1) t2 
+     SFalse -> e2 :> combine s1 r2 (e1 :> t1) t2
 
 -- combine the two results together, when they both are defined
 both :: forall s1 s2. (SingI s1, SingI s2) => Result s1 -> Result s2 -> Result (Merge s1 s2)
@@ -261,7 +263,7 @@ both _         _         = Nothing
 
 -- default value for optional types
 defOcc :: Π o -> OccType (Max Opt o)
-defOcc SOnce = Nothing    
+defOcc SOnce = Nothing
 defOcc SOpt  = Nothing
 defOcc SMany = []
 
@@ -312,10 +314,10 @@ glueLeft (SCons e1@(STuple2 ps so1)  t1)
               tocc = glueOccLeft so1 so2 ts
    SFalse -> case ps %:<= pt of
      STrue  -> E tocc :> glueLeft t1 s2 (e2 :> t2) where
-                 tocc = defOcc so1 
+                 tocc = defOcc so1
      SFalse -> E tocc :> glueLeft (SCons e1 t1) st2 t2 where
                  tocc = glueOccLeft SOpt so2 ts
-                 
+
 glueRight :: Π s1 -> Dict s1 -> Π s2 -> Dict (Alt s1 s2)
 glueRight SNil Nil SNil = Nil
 glueRight (SCons (STuple2 pt so2) st2) (e2@(E ts) :> t2) SNil =
@@ -323,16 +325,16 @@ glueRight (SCons (STuple2 pt so2) st2) (e2@(E ts) :> t2) SNil =
     tocc = glueOccLeft SOpt so2 ts
 glueRight SNil Nil (SCons (STuple2 ps so) t) =
   E  (defOcc so) :> glueRight SNil Nil t
-glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(E ss) :> t1) 
+glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(E ss) :> t1)
           (SCons e2@(STuple2 pt so2) t2) =
   case ps %:== pt of
     STrue  -> E tocc :> glueRight st1 t1 t2 where
-                tocc = glueOccRight so1 ss so2 
+                tocc = glueOccRight so1 ss so2
     SFalse -> case ps %:<= pt of
       STrue  -> E tocc :> glueRight st1 t1 (SCons e2 t2) where
                   tocc = glueOccLeft SOpt so1 ss
       SFalse -> E tocc :> glueRight s1 (e1 :> t1) t2 where
-                  tocc = defOcc so2 
+                  tocc = defOcc so2
 
 
 -- take the first successful result
@@ -340,7 +342,7 @@ glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(E ss) :> t1)
 -- not be present in the successful version
 first :: forall s1 s2. (SingI s1, SingI s2) =>
                       Result s1 -> Result s2 -> Result (Alt s1 s2)
-first Nothing Nothing  = Nothing                   
+first Nothing Nothing  = Nothing
 first Nothing (Just y) = Just (glueLeft (sing :: Sing s1) sing y)
 first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
 
@@ -350,15 +352,15 @@ first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
 -- Must use explicit type application when called because this function
 -- has a highly ambiguous type.
 nils :: forall s. SingI s => Dict (Repeat s)
-nils = nils' (sing :: Sing s) where 
+nils = nils' (sing :: Sing s) where
     nils' :: Π ss -> Dict (Repeat ss)
     nils' SNil                    = Nil
     nils' (SCons (STuple2 _ _) r) = E [] :> nils' r
 
-    
-       
+
+
 ----------------------------------------------------------------
-        
+
 -- we need this property of 'Occ' terms during type checking
 class (o ~ Max o o, SingI o) => WfOcc (o :: Occ) where
 instance WfOcc Once
@@ -373,15 +375,15 @@ class (m ~ Alt m m,
        Merge m (Repeat m) ~ Repeat m,
        -- they also have runtime representations
        SingI m) =>
-       Wf (m :: SM) 
+       Wf (m :: SM)
 
 
 -- proof of all base cases
 instance Wf '[]
 -- proof of all inductive steps
-instance (SingI n, WfOcc o, Wf s) => Wf ('(n, o) : s) 
+instance (SingI n, WfOcc o, Wf s) => Wf ('(n, o) : s)
 
-         
+
 -- this constraint rules out "infinite" sets of the form
 -- (which has a coinductive proof of the merge property?)
 type family T :: SM where
@@ -392,15 +394,15 @@ testWf = ()
 
 x1 = testWf @'[ '("a", Once), '("b", Opt), '("c", Many) ]
 -- x2 = testWf @T   -- doesn't type check
-        
-  
+
+
 -------------------------------------------------------------------------
 
 -- Our GADT, indexed by the set of pattern variables Note that we require all
 -- sets, except for the index of Rvoid, to be Wf. (Empty is known to be.)
 
 data R (s :: SM) where
-  Rempty :: R Empty 
+  Rempty :: R Empty
   Rvoid  :: R s
   Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
   Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt   s1 s2)
@@ -413,7 +415,7 @@ data R (s :: SM) where
 -------------------------------------------------------------------------
 -- smart constructors
 -- we optimize the regular expression whenever we
--- build it.  
+-- build it.
 
 -- reduces (r,epsilon) (epsilon,r) to just r
 -- (r,void) and (void,r) to void
@@ -427,7 +429,7 @@ rseq r1 r2             = Rseq r1 r2
 
 -- a special case for alternations when both sides capture the
 -- same groups. In this case it is cheap to remove voids
--- reduces void|r and r|void to r    
+-- reduces void|r and r|void to r
 raltSame :: Wf s => R s -> R s -> R (Alt s s)
 raltSame r1 r2 | isVoid r1 = r2
 raltSame r1 r2 | isVoid r2 = r1
@@ -452,7 +454,7 @@ rstar (Rstar s) = Rstar s
 rstar Rempty    = Rempty
 rstar r1 | isVoid r1, Just Refl <- testEquality (sing :: Sing s) SNil = Rempty
 rstar s         = Rstar s
-     
+
 
 -- convenience function for marks
 -- MUST use explicit type application for 'n' to avoid ambiguity
@@ -492,8 +494,8 @@ rany = Rany
 ------------------------------------------------------
 isVoid :: R s -> Bool
 isVoid Rvoid          = True
-isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2  
-isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2  
+isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
+isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
 isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
@@ -511,7 +513,7 @@ markResult :: Π n -> String -> Result (One n)
 markResult n s = Just (E s :> Nil)
 
 
-       
+
 ------------------------------------------------------
 
 -- matching using derivatives
@@ -520,7 +522,7 @@ markResult n s = Just (E s :> Nil)
 match :: Wf s => R s -> String -> Result s
 match r w = extract (foldl' deriv r w)
 
--- Can the regexp match the empty string? 
+-- Can the regexp match the empty string?
 nullable :: R n -> Bool
 nullable Rempty         = True
 nullable Rvoid          = False
@@ -558,7 +560,7 @@ markEmpty :: forall n. Wf n => R n -> R n
 markEmpty (Rmark p w r) = Rmark p w (markEmpty r)
 markEmpty (Ralt r1 r2)  = ralt  (markEmpty r1) (markEmpty r2)
 markEmpty (Rseq r1 r2)  = rseq  (markEmpty r1) (markEmpty r2)
-markEmpty (Rstar r)     = rstar (markEmpty r) 
+markEmpty (Rstar r)     = rstar (markEmpty r)
 markEmpty Rempty        = rempty
 markEmpty Rvoid         = Rvoid
 markEmpty (Rchar c)     = Rvoid
@@ -578,15 +580,15 @@ extract (Rchar cs)     = Nothing
 extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
 extract (Ralt r1 r2)   = first (extract r1) (extract r2)
 extract (Rstar r)      = Just $ nils @s
-extract (Rmark n s r)  = withSingI n $ both (markResult n s) (extract r) 
+extract (Rmark n s r)  = withSingI n $ both (markResult n s) (extract r)
 extract (Rnot cs)      = Nothing
 extract _              = Nothing
 
 ----------------------------------------------------------------
 -- Additional library functions for the library, more flexible
 -- than match
-        
--- | Given r, return the result from the first part 
+
+-- | Given r, return the result from the first part
 -- of the string that matches m (greedily... consume as much
 -- of the string as possible)
 matchInit :: Wf s => R s -> String -> (Result s, String)
@@ -628,7 +630,7 @@ instance Show (Sing (s :: SM)) where
     show' SNil = "]"
     show' (SCons (STuple2 sn so) ss) = show sn ++ "," ++ show' ss
 instance SingI n => Show (R n) where
-  show Rvoid  = "ϕ" 
+  show Rvoid  = "ϕ"
   show Rempty = "ε"
   show (Rseq r1 (Rstar r2)) | show r1 == show r2 = maybeParens r1 ++ "+"
   show (Rseq r1 r2)    = show r1 ++ show r2
@@ -652,7 +654,7 @@ instance SingI n => Show (R n) where
 escape :: Char -> String
 escape c  = if c `elem` specials then "\\" ++ [c] else [c] where
        specials         = ".[{}()\\*+?|^$"
-  
+
 maybeParens :: SingI s => R s -> String
 maybeParens r = if needsParens r then "(" ++ show r ++ ")" else show r
 
@@ -666,6 +668,3 @@ needsParens (Rchar cs)   = False
 needsParens (Rany)       = False
 needsParens (Rnot _)     = False
 needsParens (Rmark _ _ _) = False
-
-   
-

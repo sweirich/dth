@@ -14,7 +14,7 @@ import RegexpDependent
 -- RegexpDependent version. This helped me figure out the semantics of the
 -- system that I wanted before adding dependent types.
 
-       
+
 import qualified Data.Set as Set
 
 import Test.HUnit
@@ -52,7 +52,7 @@ r10 = (rstar Rany) `rseq` rmark @"a" (rchar 'a')
 r11 = (rstar (rmark @"n" (rchar 'a')) `rseq` (rchar '}'))
 
 r12 =  ((ralt rempty (rmark @"n" (rchar 'a'))) `rseq` (rchar 'b'))
-    
+
 r13 =  ((ralt (rmark @"n" (rchar 'a')) rempty) `rseq` (rchar 'b'))
 
 main = runTestTT $
@@ -112,13 +112,13 @@ nm = getField @"name"  result
 ph = getField @"phone" result
 
 -- Doesn't type check on enhanced versions
--- bad = getField @"email" result
+--bad = getField @"email" result
 
 -------------------------------------------------------------------------
 -- For RegexpDependent also check out the more refined types that are possible:
 
---nm2 = get @"name" $ fromJust (match entry "Stephanie")
---ph2 = get @"phone" $ fromJust (match entry "Stephanie")
+nm2 = get @"name" $ fromJust (match entry "Stephanie")
+ph2 = get @"phone" $ fromJust (match entry "Stephanie")
 
 -------------------------------------------------------------------------
 
@@ -127,5 +127,3 @@ difficult = rstar (ralt (rchar 'a') (rchar 'a' `rseq` rchar 'a'))
                   `rseq` (rchar 'b')
 
 sloooow =  match difficult "aaaaaaaaaaaaaaaaaaaaaaaab"
-
-
