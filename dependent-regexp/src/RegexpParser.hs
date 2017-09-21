@@ -38,8 +38,8 @@ data RegExp
   | Void               -- matches nothing (always fails)
   | Var String         -- a variable holding another regexp (explained later)
   | Not (Set Char)
-  | Any 
-  | Mark String RegExp 
+  | Any
+  | Mark String RegExp
   deriving Show
 
 uplus r  = Seq r (Star r)
@@ -61,7 +61,7 @@ regexParser = alts <* eof where
   esc_char   =  (Char . Set.singleton) <$> try esc_char_p
             <|> (Char . Set.fromList <$> manychar)
   esc_char_p :: Parser Char
-  esc_char_p = P.char '\\' >> 
+  esc_char_p = P.char '\\' >>
                              (try (P.char 't' >> return '\t')
                           <|> try (P.char 'r' >> return '\r')
                           <|> try (P.char 'n' >> return '\n')
@@ -71,7 +71,7 @@ regexParser = alts <* eof where
                              (try (P.char 'd' >> return chars_digit)
                           <|> try (P.char 's' >> return chars_whitespace)
                           <|> (P.char 'w' >> return chars_word))
-   
+
   char       = try charclass <|> singlechar
   singlechar = (Char . Set.singleton) <$> noneOf specials
   charclass  = P.char '[' >> ((Not  <$> try (P.char '^' *> enum))
@@ -89,7 +89,7 @@ regexParser = alts <* eof where
                   return c
   range      = enumFromTo
                  <$> (try esc_char_p <|> noneOf "]-" <* P.char '-')
-                 <*> (try esc_char_p <|> noneOf "]") 
+                 <*> (try esc_char_p <|> noneOf "]")
   alts       = try (Alt <$> seqs <*> (P.char '|' *> alts)) <|> seqs
   seqs       = try (Seq <$> star <*> seqs)                 <|> star
   star       = try (Star <$> (atom <* P.char '*'))         <|> plus
@@ -99,10 +99,10 @@ regexParser = alts <* eof where
                                          *> many1 (noneOf ">") <* P.char '>')
                                         <*> alts)
                <|> atom
-  specials   = ".[{}()\\*+?|^$" 
+  specials   = ".[{}()\\*+?|^$"
 
 pp :: String -> Either ParseError RegExp
-pp = runParser regexParser () "" 
+pp = runParser regexParser () ""
 
 --------------------------------------
 
@@ -115,18 +115,13 @@ re = QuasiQuoter {
   }
   where notHandled things = error $
           things ++ " are not handled by the regex quasiquoter."
- 
+
 compile :: String -> Q Exp
 compile s =
   case P.parse regexParser "" s of
     Left  err    -> fail (show err)
     Right regexp -> [e| regexp |]
 
---instance Lift a => Lift (Set a) where
---  lift set = appE (varE 'Set.fromList) (lift (Set.toList set))
-
-
-  
 instance Lift RegExp where
   -- lift :: RegExp -> Q Exp
   lift (Char cs)     = apply 'Rchar [lift cs]
@@ -142,44 +137,6 @@ instance Lift RegExp where
                              p = SigE (ConE 'Proxy) (AppT (ConT ''Proxy)
                                       (LitT (StrTyLit s)))
   lift (Var vars)    = foldl1 appE $ map (varE . mkName) (words vars)
- 
+
 apply :: Name -> [Q Exp] -> Q Exp
 apply n = foldl appE (conE n)
-
-------------------------------------------------------
-
--- Some higher-level regexp functions
-
-{-
--- | Does this string start with the given regexp?
-startsWith :: _ -> String -> Bool
-startsWith r s = nullable r || not (null (fst (rinit r s)))
-
--- | Given r, split the string into the part that matches
--- r and the part that doesn't
-rinit :: _ -> String -> (String, String)
-rinit r (x:xs) = let r' = deriv r x in
-                 if isVoid r' then ("", x:xs) else
-                   case rinit r' xs of
-                     (hd,tl) -> (x:hd, tl)                     
-rinit r [] = ("","") 
-
-ccons :: a -> [[a]] -> [[a]]
-ccons x []     = (x:[]):[]
-ccons x (y:ys) = (x:y) :ys
-
--- | Divide a string using r as a separator
-split :: _ -> String -> [String]
-split r [] = []
-split r s@(x:xs) = case rinit r s of
-  ("",_)  -> ccons x (split r xs)
-  (ys,zs) -> [] : split r zs
-
-
--- | Does this string contain the given regexp
-contains :: _ -> String -> Bool
-contains r s = any (startsWith r) (List.tails s)
--}
-
-
-

@@ -11,7 +11,22 @@
 {-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
-module RegexpDependent where
+module RegexpDependent(
+  -- regexp type
+  R(..),Occ(..),
+  -- constructors for regexps
+  rempty,rvoid,rseq,ralt,rstar,rchar,rany,rnot,rmark,
+  rchars,ropt,rplus,rmarkSing,
+
+  -- dictionaries & type safe access
+  Dict(..),Entry(..),
+  module GHC.Records,
+  getMatch,
+
+  -- regexp matching
+  Result(..),
+  match, matchInit, extractOne, extractAll, contains)
+    where
 
 import Data.Kind(Type)
 import Data.Type.Equality(TestEquality(..),(:~:)(..))
@@ -28,47 +43,18 @@ import qualified Data.Char as Char
 
 import Data.List(foldl')
 
+import GHC.Records
 
 -------------------------------------------------------------------------
-type Π n = Sing n
--------------------------------------------------------------------------
+
+-- We use the singletons library to lift these definitions to the
+-- type level
 
 $(singletons [d|
-  -- Note: deriving Ord automatically defines "max", used in alt below
-  -- that's super cool!
   data Occ = Once | Opt | Many deriving (Eq, Ord, Show)
   |])
 
 type SM = [(Symbol,Occ)]
-
-type Empty = '[]
-
-type One s = '[ '(s,Once) ]
-
-type family Merge (a :: SM) (b :: SM) :: SM where
-   Merge s  '[] = s
-   Merge '[] s  = s
-   Merge ('(n1,o1):t1) ('(n2,o2):t2) =
-     If (n1 :== n2) ('(n1, 'Many) : Merge t1 t2)
-        (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))
-                        ('(n2, o2) : Merge ('(n1,o1):t1) t2))
-
-type family Alt (a :: SM) (b :: SM) :: SM where
-   Alt '[] '[] = '[]
-   Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
-   Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
-   Alt ('(n1,o1):t1) ('(n2,o2):t2) =
-     If (n1 :== n2) ('(n1, Max o1 o2) : Alt t1 t2)
-        (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))
-                        ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
-
-type family Repeat (a :: SM) :: SM where
-   Repeat '[] = '[]
-   Repeat ( '(n,o) : t) = '(n, Many) : Repeat t
-
-{-
--- Could have also used the Singletons library to use term level notation
--- to define these operations.
 
 $(singletons [d|
 
@@ -100,7 +86,37 @@ $(singletons [d|
   repeat ((n,o):t) = ((n, Many):repeat t)
 
   |])
+
+
+{-
+-- this is the equivalent code that we could have written
+
+type Empty = '[]
+
+type One s = '[ '(s,Once) ]
+
+type family Merge (a :: SM) (b :: SM) :: SM where
+   Merge s  '[] = s
+   Merge '[] s  = s
+   Merge ('(n1,o1):t1) ('(n2,o2):t2) =
+     If (n1 :== n2) ('(n1, 'Many) : Merge t1 t2)
+        (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))
+                        ('(n2, o2) : Merge ('(n1,o1):t1) t2))
+
+type family Alt (a :: SM) (b :: SM) :: SM where
+   Alt '[] '[] = '[]
+   Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
+   Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
+   Alt ('(n1,o1):t1) ('(n2,o2):t2) =
+     If (n1 :== n2) ('(n1, Max o1 o2) : Alt t1 t2)
+        (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))
+                        ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
+
+type family Repeat (a :: SM) :: SM where
+   Repeat '[] = '[]
+   Repeat ( '(n,o) : t) = '(n, Many) : Repeat t
 -}
+
 
 -------------------------------------------------------------------------
 
@@ -128,10 +144,10 @@ type family OccType (o :: Occ) = (res :: Type) | res -> o where
   OccType Opt  = Maybe String
   OccType Many = [String]
 
--- type inferred to be (using injectivity above for OccType)
+-- type inferred to be (uses injectivity above for OccType)
 -- example_dict :: Dict '['("b", 'Once), '("d", 'Many), '("e", 'Opt)]
 example_dict = E @"b" "Regexp" :>
-               E @"d" ["dth", "popl17"] :>
+               E @"d" ["dth", "strl17"] :>
                E @"e" (Just "hs") :> Nil
 
 -------------------------------------------------------------------------
@@ -148,11 +164,8 @@ data Index (n :: Symbol)  (o :: Occ) (s :: SM) where
   DT :: Index n o s -> Index n o (t:s)
 
 -- Find a name n in s, if it exists (and return a proof!),
--- or produce TypeError
--- We need TypeInType to return a GADT from a type family
---type family Find n s :: Index n o s where
---  Find n s = FindH n s s
-
+-- or produce a TypeError
+-- NOTE: We need TypeInType to return a GADT from a type family
 type Find n s = (FindH n s s :: Index n o s)
 
 -- The second argument is the original association list
@@ -161,7 +174,7 @@ type family FindH (n :: Symbol) (s :: SM) (s2 :: SM) :: Index n o s where
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
-     TypeError (Text "Hey POPL17!  I couldn't find a group named '" :<>:
+     TypeError (Text "Hey StrangeLoop17!  I couldn't find a group named '" :<>:
                 Text n :<>: Text "' in" :$$:
                 Text "    {" :<>: ShowSM s2 :<>: Text "}")
 
@@ -180,54 +193,55 @@ instance (Get l) => Get (DT l) where
 
 
 -- Generic interface to flexible records
--- This class will eventually be defined in Data.Record
--- to support overloaded field names
--- (though it will be called HasField and getField)
-class Has (x :: k) r a | x r -> a where
-  get    :: r -> a
+-- This class is now defined in GHC.Record to support overloaded field names
+--class HasField (x :: k) r a | x r -> a where
+--  getField    :: r -> a
 
 -- Instance for the Maybe in the result type
-instance (Has n u t) => Has n (Maybe u) (Maybe t) where
-  get (Just x) = Just (get @n x)
-  get Nothing  = Nothing
+instance (HasField n u t) => HasField n (Maybe u) (Maybe t) where
+  getField (Just x) = Just (getField @n x)
+  getField Nothing  = Nothing
 
 -- Instance for the Dictionary: if we can find the name
 -- without producing a type error, then type class
 -- resolution for Get will generate the correct accessor
 -- function at compile time
 instance (Get (Find n s :: Index n o s),
-         t ~ OccType o) => Has n (Dict s) t where
-  get = getp @_ @_ @_ @(Find n s)
+         t ~ OccType o) => HasField n (Dict s) t where
+  getField = getp @_ @_ @_ @(Find n s)
 
 -- Alternate interface that turns everything into a [String]
-getField :: forall n s o. (Get (Find n s :: Index n o s), SingI o) => Result s -> [String]
-getField (Just x) = gg (sing :: Π o) (getp @_ @_ @_ @(Find n s) x) where
-     gg :: Π o -> OccType o -> [String]
+getMatch :: forall n s o. (Get (Find n s :: Index n o s), SingI o) => Result s -> [String]
+getMatch (Just x) = gg (sing :: Sing o) (getp @_ @_ @_ @(Find n s) x) where
+     gg :: Sing o -> OccType o -> [String]
      gg SOnce s       = [s]
      gg SOpt (Just s) = [s]
      gg SOpt Nothing  = []
      gg SMany s       = s
-getField Nothing  = []
+getMatch Nothing  = []
 
 -------------------------------------------------------------------------
 -- Show instance for Dict
 
-instance Show (Sing (n :: Symbol)) where
-  show ps@SSym = symbolVal ps
+--instance Show (Sing (n :: Symbol)) where
+--  show ps@SSym = symbolVal ps
 
 instance (SingI n, SingI o) => Show (Entry '(n,o)) where
-  show = showEntry sing sing
+  show = showEntry sing sing where
+
 
 instance SingI s => Show (Dict s) where
   show xs = "{" ++ showDict sing xs where
-    showDict :: Π xs -> Dict xs -> String
+    showDict :: Sing xs -> Dict xs -> String
     showDict SNil Nil = "}"
     showDict (SCons (STuple2 sn so) pp) (e :> Nil) = showEntry sn so e ++ "}"
     showDict (SCons (STuple2 sn so) pp) (e :> xs)  = showEntry sn so e ++ "," ++ showDict pp xs
 
-showEntry :: Π n -> Π o -> Entry '(n,o) -> String
-showEntry sn so (E ss) = show sn ++ "=" ++ showData so ss where
-    showData :: Π o -> OccType o -> String
+showEntry :: forall n o. Sing n -> Sing o -> Entry '(n,o) -> String
+showEntry sn so (E ss) = ssym sn ++ "=" ++ showData so ss where
+    ssym :: Sing n -> String
+    ssym ps@SSym = symbolVal ps
+    showData :: Sing o -> OccType o -> String
     showData SOnce ss = show ss
     showData SOpt  ss = show ss
     showData SMany ss = show ss
@@ -236,7 +250,7 @@ showEntry sn so (E ss) = show sn ++ "=" ++ showData so ss where
 -- Operations on dictionaries (mostly used in extract, see below)
 
 
-combine :: Π s1 -> Π s2 -> Dict s1 -> Dict s2 -> Dict (Merge s1 s2)
+combine :: Sing s1 -> Sing s2 -> Dict s1 -> Dict s2 -> Dict (Merge s1 s2)
 combine SNil SNil Nil Nil = Nil
 combine SNil _ Nil b = b
 combine _ SNil b Nil = b
@@ -246,7 +260,7 @@ combine s1@(SCons (STuple2 ps so1) r1)  s2@(SCons (STuple2 pt so2) r2)
    STrue  -> E (toMany so1 ss ++ toMany so2 ts) :> combine r1 r2 t1 t2
      where
        -- note that 'OccType Many' is [String]
-       toMany :: Π o -> OccType o -> OccType Many
+       toMany :: Sing o -> OccType o -> OccType Many
        toMany SOnce  s       = [s]
        toMany SOpt  (Just s) = [s]
        toMany SOpt  Nothing  = []
@@ -262,7 +276,7 @@ both (Just xs) (Just ys) = Just $ combine (sing :: Sing s1) (sing :: Sing s2) xs
 both _         _         = Nothing
 
 -- default value for optional types
-defOcc :: Π o -> OccType (Max Opt o)
+defOcc :: Sing o -> OccType (Max Opt o)
 defOcc SOnce = Nothing
 defOcc SOpt  = Nothing
 defOcc SMany = []
@@ -271,7 +285,7 @@ defOcc SMany = []
 -- This was a not so bad to define.  I made it an id function for every case,
 -- then used the four type errors to figure out which lines to change.
 -- Agda-like splitting would have helped, though.
-glueOccLeft :: Π o1 -> Π o2 -> OccType o2 -> OccType (Max o1 o2)
+glueOccLeft :: Sing o1 -> Sing o2 -> OccType o2 -> OccType (Max o1 o2)
 glueOccLeft SOnce SOnce m = m
 glueOccLeft SOnce SOpt  m = m
 glueOccLeft SOnce SMany m = m
@@ -286,7 +300,7 @@ glueOccLeft SMany SMany m = m
 -- We don't have a communitivity property for Max. If we did
 -- we wouldn't have to define both Left and Right versions of
 -- this function.
-glueOccRight :: Π o1 -> OccType o1 -> Π o2 -> OccType (Max o1 o2)
+glueOccRight :: Sing o1 -> OccType o1 -> Sing o2 -> OccType (Max o1 o2)
 glueOccRight SOnce m SOnce = m
 glueOccRight SOnce m SOpt  = Just m
 glueOccRight SOnce m SMany = [m]
@@ -300,7 +314,7 @@ glueOccRight SMany m SMany = m
 
 -- Weaken a dictionary by converting all of its entries
 -- to 'Max Opt o' versions.
-glueLeft :: Π s1 -> Π s2 -> Dict s2 -> Dict (Alt s1 s2)
+glueLeft :: Sing s1 -> Sing s2 -> Dict s2 -> Dict (Alt s1 s2)
 glueLeft SNil SNil Nil = Nil
 glueLeft SNil (s2@(SCons (STuple2 pt so2) st2))(e2@(E ts) :> t2) =
   E tocc :> glueLeft SNil st2 t2 where
@@ -318,7 +332,7 @@ glueLeft (SCons e1@(STuple2 ps so1)  t1)
      SFalse -> E tocc :> glueLeft (SCons e1 t1) st2 t2 where
                  tocc = glueOccLeft SOpt so2 ts
 
-glueRight :: Π s1 -> Dict s1 -> Π s2 -> Dict (Alt s1 s2)
+glueRight :: Sing s1 -> Dict s1 -> Sing s2 -> Dict (Alt s1 s2)
 glueRight SNil Nil SNil = Nil
 glueRight (SCons (STuple2 pt so2) st2) (e2@(E ts) :> t2) SNil =
   E tocc :> glueRight st2 t2 SNil where
@@ -353,7 +367,7 @@ first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
 -- has a highly ambiguous type.
 nils :: forall s. SingI s => Dict (Repeat s)
 nils = nils' (sing :: Sing s) where
-    nils' :: Π ss -> Dict (Repeat ss)
+    nils' :: Sing ss -> Dict (Repeat ss)
     nils' SNil                    = Nil
     nils' (SCons (STuple2 _ _) r) = E [] :> nils' r
 
@@ -500,7 +514,7 @@ isVoid (Rmark ps s r) = isVoid r
 isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
--- and doesn't capture any subgroups??
+-- and doesn't capture any subgroups
 isEmpty :: Wf s => R s -> Maybe (s :~: Empty)
 isEmpty Rempty        = Just Refl
 isEmpty (Rstar r)     | Just Refl <- isEmpty r = Just Refl
@@ -509,7 +523,7 @@ isEmpty (Rseq r1 r2)  | Just Refl <- isEmpty r1, Just Refl <- isEmpty r2 = Just 
 isEmpty _             = Nothing
 
 
-markResult :: Π n -> String -> Result (One n)
+markResult :: Sing n -> String -> Result (One n)
 markResult n s = Just (E s :> Nil)
 
 
@@ -571,8 +585,7 @@ markEmpty Rany          = Rvoid
 
 
 -- | Extract the result from the regular expression
--- if the regular expression is nullable
--- even if the regular expression is not nullable, there
+-- NB: even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
 extract :: forall s. Wf s => R s -> Result s
 extract Rempty         = Just Nil
@@ -585,8 +598,8 @@ extract (Rnot cs)      = Nothing
 extract _              = Nothing
 
 ----------------------------------------------------------------
--- Additional library functions for the library, more flexible
--- than match
+-- Additional library functions, more flexible than match
+
 
 -- | Given r, return the result from the first part
 -- of the string that matches m (greedily... consume as much
@@ -597,7 +610,7 @@ matchInit r (x:xs) = let r' = deriv r x in
                  else matchInit r' xs
 matchInit r "" = (match r "", "")
 
-
+-- helper for below
 pextract :: Wf s => R s -> String -> (Result s, String)
 pextract r "" = (match r "", "")
 pextract r t  = case matchInit r t of
