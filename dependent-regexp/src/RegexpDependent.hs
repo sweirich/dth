@@ -101,6 +101,7 @@ rstar s         = Rstar s
 rmark :: forall n s. (KnownSymbol n, Wf s) => R s -> R (Merge (One n) s)
 rmark = rmarkSing (sing :: Sing n)
 
+-- Another version, use a proxy instead of explicit type application
 rmarkSing :: forall n s proxy.
    (KnownSymbol n, Wf s) => proxy n -> R s -> R (Merge (One n) s)
 rmarkSing n = Rmark (sing :: Sing n) ""
@@ -148,36 +149,15 @@ isEmpty (Ralt r1 r2)  | Just Refl <- isEmpty r1, Just Refl <- isEmpty r2 = Just 
 isEmpty (Rseq r1 r2)  | Just Refl <- isEmpty r1, Just Refl <- isEmpty r2 = Just Refl
 isEmpty _             = Nothing
 
-
-markResult :: Sing n -> String -> Result (One n)
-markResult n s = Just (E s :> Nil)
-
-
-
 ------------------------------------------------------
+-- matching using derivatives
+-- If the string matches, produce a dictionary
 
 type Result (s :: SM) = Maybe (Dict s)
 
--- combine the two results together, when they both are defined
-both :: forall s1 s2. (SingI s1, SingI s2) => Result s1 -> Result s2 -> Result (Merge s1 s2)
-both (Just xs) (Just ys) = Just $ combine (sing :: Sing s1) (sing :: Sing s2) xs ys
-both _         _         = Nothing
-
--- take the first successful result
--- note that we need to merge in empty labels for the ones that may
--- not be present in the successful version
-first :: forall s1 s2. (SingI s1, SingI s2) =>
-                      Result s1 -> Result s2 -> Result (Alt s1 s2)
-first Nothing Nothing  = Nothing
-first Nothing (Just y) = Just (glueLeft (sing :: Sing s1) sing y)
-first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
-
-
-------------------------------------------------------
-
--- matching using derivatives
 -- we compute the derivative for each letter, then
 -- extract the data structure stored in the regexp
+
 match :: Wf s => R s -> String -> Result s
 match r w = extract (foldl' deriv r w)
 
@@ -242,9 +222,30 @@ extract (Rmark n s r)  = withSingI n $ both (markResult n s) (extract r)
 extract (Rnot cs)      = Nothing
 extract _              = Nothing
 
+
+------------------------------------------------------
+-- helper functions for extract
+
+-- combine the two results together, when they both are defined
+both :: forall s1 s2. (SingI s1, SingI s2) => Result s1 -> Result s2 -> Result (Merge s1 s2)
+both (Just xs) (Just ys) = Just $ combine (sing :: Sing s1) (sing :: Sing s2) xs ys
+both _         _         = Nothing
+
+-- take the first successful result
+-- note that we need to merge in empty labels for the ones that may
+-- not be present in the successful version
+first :: forall s1 s2. (SingI s1, SingI s2) =>
+                      Result s1 -> Result s2 -> Result (Alt s1 s2)
+first Nothing Nothing  = Nothing
+first Nothing (Just y) = Just (glueLeft (sing :: Sing s1) sing y)
+first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
+
+-- Capture a single value marked by `n`
+markResult :: Sing n -> String -> Result (One n)
+markResult n s = Just (E s :> Nil)
+
 ----------------------------------------------------------------
 -- Additional library functions, more flexible than match
-
 
 -- | Given r, return the result from the first part
 -- of the string that matches m (greedily... consume as much
