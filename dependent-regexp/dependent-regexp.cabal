@@ -50,7 +50,7 @@ cabal-version:       >= 1.2
 
 library
   -- Modules exported by the library.
-  exposed-modules:   Regexp, RegexpDependent, RegexpParser
+  exposed-modules:   OccDict, Regexp, RegexpDependent, RegexpParser
 
   -- Modules included in this library but not exported.
   -- other-modules:
