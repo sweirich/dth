@@ -10,13 +10,13 @@ name:                dependent-regexp
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.1.0.0
+version:             0.2.0.0
 
 -- A short (one-line) description of the package.
 synopsis:            A type system for regular expressions.
 
 -- A longer description of the package.
-description:         Example code demonstrating strongly-typed regular expression matching
+description:         Example demonstrating strongly-typed regular expression capture-group matching using dependent types.
 
 -- URL for the project homepage or repository.
 homepage:            http://github.com/sweirich/dth/regexp
@@ -45,12 +45,12 @@ build-type:          Simple
 -- README.
 extra-source-files:  ChangeLog.md, README.md
 
-cabal-version:       >= 1.2
+cabal-version:       >= 1.10
 
 
 library
   -- Modules exported by the library.
-  exposed-modules:   OccDict, Regexp, RegexpDependent, RegexpParser
+  exposed-modules:   OccDict, Regexp, RegexpDependent, RegexpParser, RegexpTest
 
   -- Modules included in this library but not exported.
   -- other-modules:
@@ -66,7 +66,8 @@ library
                        template-haskell >=2.11 && <2.13,
                        th-lift-instances >=0.1 && <0.2,
                        parsec >=3.1 && <3.2,
-                       HUnit >=1.3 && <1.7
+                       HUnit >=1.3 && <1.7,
+                       dlist >= 0.8 && < 1.0
 
   -- Directories containing source files.
   hs-source-dirs:      src

@@ -10,18 +10,21 @@
 {-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
+-- | This module implements the regular expression type and several operations
+-- for matching regular expressions against strings
 module RegexpDependent(
-  -- dictionaries & type safe access
-  module OccDict,
 
   -- regexp type
-  R(..),
-  -- constructors for regexps
-  rempty,rvoid,rseq,ralt,rstar,rchar,rany,rnot,rmark,
-  rchars,ropt,rplus,rmarkSing,
+  RE(..),
+
+  -- functions to construct regexps
+  rempty, rvoid,rseq,ralt,ropt,rstar,rplus,rchar,rchars,
+  rany,rnot,rmark,rmarkSing,
+
+  -- occurrence dictionary
+  module OccDict,
 
   -- regexp matching functions
-  Result(..),
   match, matchInit, extractOne, extractAll, contains)  where
 
 import Data.Kind(Type)
@@ -29,10 +32,15 @@ import Data.Type.Equality(TestEquality(..),(:~:)(..))
 import GHC.Records
 import GHC.TypeLits
 import Data.Singletons.Prelude
+
+import Data.List(foldl')
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Char as Char
-import Data.List(foldl')
+import Data.DList (DList)
+import qualified Data.DList as DList
+
+import Data.Monoid((<>))
 
 import OccDict
 
@@ -41,28 +49,29 @@ import OccDict
 -- Our GADT, indexed by the set of pattern variables Note that we require all
 -- sets, except for the index of Rvoid, to be Wf. (Empty is known to be.)
 
-data R (s :: SM) where
-  Rempty :: R Empty
-  Rvoid  :: R s
-  Rseq   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
-  Ralt   :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt   s1 s2)
-  Rstar  :: Wf s => R s  -> R (Repeat s)
-  Rchar  :: Set Char -> R Empty
-  Rany   :: R Empty
-  Rnot   :: Set Char -> R Empty
-  Rmark  :: (Wf s) => Sing n -> String -> R s -> R (Merge (One n) s)
+-- | Regular expressions, indexed by a symbol occurrence map that describes
+-- potential capture groups
+data RE (s :: SymMap) where
+  Rempty :: RE Empty
+  Rvoid  :: RE s
+  Rseq   :: (Wf s1, Wf s2) => RE s1 -> RE s2 -> RE (Merge s1 s2)
+  Ralt   :: (Wf s1, Wf s2) => RE s1 -> RE s2 -> RE (Alt   s1 s2)
+  Rstar  :: Wf s => RE s  -> RE (Repeat s)
+  Rchar  :: Set Char -> RE Empty
+  Rany   :: RE Empty
+  Rnot   :: Set Char -> RE Empty
+  Rmark  :: (Wf s) => Sing n -> DList Char -> RE s -> RE (Merge (One n) s)
 
 -------------------------------------------------------------------------
 -- smart constructors
--- we optimize the regular expression whenever we
--- build it.
+-- we optimize the regular expression whenever we build it.
 
--- reduces (r,epsilon) (epsilon,r) to just r
--- (r,void) and (void,r) to void
-rseq :: (Wf s1, Wf s2) => R s1 -> R s2 -> R (Merge s1 s2)
-rseq Rempty r2 = r2
+
+-- | Sequence (r1 r2)
+rseq :: (Wf s1, Wf s2) => RE s1 -> RE s2 -> RE (Merge s1 s2)
+rseq Rempty r2 = r2               -- reduces (r,epsilon) (epsilon,r) to just r
 rseq r1 Rempty = r1
-rseq r1 r2 | isVoid r1 = Rvoid
+rseq r1 r2 | isVoid r1 = Rvoid    -- (r,void) and (void,r) to void
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
@@ -70,70 +79,83 @@ rseq r1 r2             = Rseq r1 r2
 -- a special case for alternations when both sides capture the
 -- same groups. In this case it is cheap to remove voids
 -- reduces void|r and r|void to r
-raltSame :: Wf s => R s -> R s -> R (Alt s s)
+raltSame :: Wf s => RE s -> RE s -> RE (Alt s s)
 raltSame r1 r2 | isVoid r1 = r2
 raltSame r1 r2 | isVoid r2 = r1
 raltSame r1 r2 = ralt r1 r2
 
-ralt :: forall s1 s2. (Wf s1, Wf s2) => R s1 -> R s2 -> R (Alt s1 s2)
+-- | Alternation (r1|r2)
+ralt :: forall s1 s2. (Wf s1, Wf s2) => RE s1 -> RE s2 -> RE (Alt s1 s2)
 -- we can remove a void on either side if the captured groups are equal
 ralt r1 r2 | isVoid r1, Just Refl <- testEquality (sing :: Sing s1) (sing :: Sing s2) = r2
 ralt r1 r2 | isVoid r2, Just Refl <- testEquality (sing :: Sing s1) (sing :: Sing s2) = r1
--- some character class combinations
+-- some character class simplifications
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
 ralt (Rchar s)  Rany       = Rany
 ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
 ralt r1 r2 = Ralt r1 r2
 
--- r** = r*
--- empty* = empty
--- void*  = empty
-rstar :: forall s. Wf s => R s -> R (Repeat s)
-rstar (Rstar s) = Rstar s
-rstar Rempty    = Rempty
-rstar r1 | isVoid r1, Just Refl <- testEquality (sing :: Sing s) SNil = Rempty
-rstar s         = Rstar s
+
+
+-- | Kleene star  r*
+rstar :: forall s. Wf s => RE s -> RE (Repeat s)
+rstar (Rstar r) = Rstar r   -- r** = r*
+rstar Rempty    = Rempty    -- empty* = empty
+rstar r1 | isVoid r1,       -- void*  = empty
+           Just Refl <- testEquality (sing :: Sing s) SNil = Rempty
+rstar r         = Rstar r
 
 
 -- convenience function for marks
+-- | Capture group marking (?P<n> r)
 -- MUST use explicit type application for 'n' to avoid ambiguity
-rmark :: forall n s. (KnownSymbol n, Wf s) => R s -> R (Merge (One n) s)
+rmark :: forall n s. (KnownSymbol n, Wf s) => RE s -> RE (Merge (One n) s)
 rmark = rmarkSing (sing :: Sing n)
 
 -- Another version, use a proxy instead of explicit type application
-rmarkSing :: forall n s proxy.
-   (KnownSymbol n, Wf s) => proxy n -> R s -> R (Merge (One n) s)
-rmarkSing n = Rmark (sing :: Sing n) ""
+-- | Capture group marking (?P<n> r)
+-- Can specify n via proxy or singleton
+rmarkSing :: (KnownSymbol n, Wf s) => proxy n -> RE s -> RE (Merge (One n) s)
+rmarkSing n = Rmark (singByProxy n) DList.empty
 
 -- Not the most general type. However, if rvoid appears in a static
 -- regexp, it should have index 'Empty'
-rvoid :: R Empty
+-- | Matches nothing (and captures nothing)
+rvoid :: RE Empty
 rvoid = Rvoid
 
-rempty :: R Empty
+-- | Only matches the empty string (ε)
+rempty :: RE Empty
 rempty = Rempty
 
-rchar :: Char -> R Empty
+-- | Matches a specific character
+rchar :: Char -> RE Empty
 rchar = Rchar . Set.singleton
 
-rchars :: [Char] -> R Empty
-rchars = Rchar . Set.fromList
-
-rnot :: [Char] -> R Empty
-rnot = Rnot . Set.fromList
-
-ropt :: Wf s => R s -> R (Alt Empty s)
-ropt = ralt rempty
-
-rplus :: (Wf (Repeat s),Wf s) => R s -> R (Merge s (Repeat s))
-rplus r = r `rseq` rstar r
-
-rany :: R Empty
+-- | Matches any single character (.)
+rany :: RE Empty
 rany = Rany
 
+-- | Matches any character in a set [a-z]
+rchars :: [Char] -> RE Empty
+rchars = Rchar . Set.fromList
+
+-- | Matches any character not in the set  [^a]
+rnot :: [Char] -> RE Empty
+rnot = Rnot . Set.fromList
+
+-- | Optional r?
+ropt :: Wf s => RE s -> RE (Alt Empty s)
+ropt = ralt rempty
+
+-- | Matches one or more  r+
+rplus :: (Wf (Repeat s),Wf s) => RE s -> RE (Merge s (Repeat s))
+rplus r = r `rseq` rstar r
+
+
 ------------------------------------------------------
-isVoid :: R s -> Bool
+isVoid :: RE s -> Bool
 isVoid Rvoid          = True
 isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
 isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
@@ -142,7 +164,7 @@ isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
 -- and doesn't capture any subgroups
-isEmpty :: Wf s => R s -> Maybe (s :~: Empty)
+isEmpty :: Wf s => RE s -> Maybe (s :~: Empty)
 isEmpty Rempty        = Just Refl
 isEmpty (Rstar r)     | Just Refl <- isEmpty r = Just Refl
 isEmpty (Ralt r1 r2)  | Just Refl <- isEmpty r1, Just Refl <- isEmpty r2 = Just Refl
@@ -151,41 +173,34 @@ isEmpty _             = Nothing
 
 ------------------------------------------------------
 -- matching using derivatives
--- If the string matches, produce a dictionary
 
-type Result (s :: SM) = Maybe (Dict s)
-
--- we compute the derivative for each letter, then
--- extract the data structure stored in the regexp
-
-match :: Wf s => R s -> String -> Result s
+-- | Determine if the provided string matches the regular expression
+-- If successful, return captured groups in dictionary
+match :: Wf s => RE s -> String -> Maybe (Dict s)
 match r w = extract (foldl' deriv r w)
 
--- Can the regexp match the empty string?
-nullable :: R n -> Bool
-nullable Rempty         = True
-nullable Rvoid          = False
-nullable (Rchar cs)     = False
-nullable (Rseq re1 re2) = nullable re1 && nullable re2
-nullable (Ralt re1 re2) = nullable re1 || nullable re2
-nullable (Rstar re)     = True
-nullable (Rmark _ _ r)  = nullable r
-nullable Rany           = False
-nullable (Rnot cs)      = False
+
+-- We use a variant of Brzozowski derivatives for the implementation
+-- of the match function.
+-- This implementation is based on "Martin Sulzmann, Kenny Zhuo Ming Lu.
+-- Regular expression sub-matching using partial derivatives."
+
+-- The general idea is to compute the derivative for each letter, storing
+-- capture groups in the regexp derivative. If the final derivative
+-- matches, then extract the dictionary.
 
 -- regular expression derivative function
-deriv :: forall n. Wf n => R n -> Char -> R n
+deriv :: forall n. Wf n => RE n -> Char -> RE n
 deriv Rempty       c   = Rvoid
 deriv (Rseq r1 r2) c   =
-      -- use raltSame instead of ralt for
-      -- speed. We know the two sides
-      -- capture the same groups here
+      -- use raltSame instead of ralt for speed.
+      -- We know the two sides capture the same groups
      raltSame (rseq (deriv r1 c) r2)
               (rseq (markEmpty r1) (deriv r2 c))
 deriv (Ralt r1 r2) c   = ralt (deriv r1 c) (deriv r2 c)
 deriv (Rstar r)      c = rseq (deriv r c) (rstar r)
 deriv Rvoid        c   = Rvoid
-deriv (Rmark p w r)  c = Rmark p (w ++ [c]) (deriv r c)
+deriv (Rmark p w r)  c = Rmark p (w <> (DList.singleton c)) (deriv r c)
 deriv (Rchar s)    c   = if Set.member c s then rempty else Rvoid
 deriv Rany         c   = rempty
 deriv (Rnot s)     c   = if Set.member c s then Rvoid else rempty
@@ -195,7 +210,7 @@ deriv (Rnot s)     c   = if Set.member c s then Rvoid else rempty
 -- marked locations
 -- (if the original could have matched the empty string in the
 -- first place)
-markEmpty :: forall n. Wf n => R n -> R n
+markEmpty :: forall n. Wf n => RE n -> RE n
 markEmpty (Rmark p w r) = Rmark p w (markEmpty r)
 markEmpty (Ralt r1 r2)  = ralt  (markEmpty r1) (markEmpty r2)
 markEmpty (Rseq r1 r2)  = rseq  (markEmpty r1) (markEmpty r2)
@@ -212,7 +227,7 @@ markEmpty Rany          = Rvoid
 -- | Extract the result from the regular expression
 -- NB: even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
-extract :: forall s. Wf s => R s -> Result s
+extract :: forall s. Wf s => RE s -> Maybe (Dict s)
 extract Rempty         = Just Nil
 extract (Rchar cs)     = Nothing
 extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
@@ -227,7 +242,7 @@ extract _              = Nothing
 -- helper functions for extract
 
 -- combine the two results together, when they both are defined
-both :: forall s1 s2. (SingI s1, SingI s2) => Result s1 -> Result s2 -> Result (Merge s1 s2)
+both :: forall s1 s2. (SingI s1, SingI s2) => Maybe (Dict s1) -> Maybe (Dict s2) -> Maybe (Dict (Merge s1 s2))
 both (Just xs) (Just ys) = Just $ combine (sing :: Sing s1) (sing :: Sing s2) xs ys
 both _         _         = Nothing
 
@@ -235,14 +250,14 @@ both _         _         = Nothing
 -- note that we need to merge in empty labels for the ones that may
 -- not be present in the successful version
 first :: forall s1 s2. (SingI s1, SingI s2) =>
-                      Result s1 -> Result s2 -> Result (Alt s1 s2)
+                      Maybe (Dict s1) -> Maybe (Dict s2) -> Maybe (Dict (Alt s1 s2))
 first Nothing Nothing  = Nothing
 first Nothing (Just y) = Just (glueLeft (sing :: Sing s1) sing y)
 first (Just x) _       = Just (glueRight sing x (sing :: Sing s2))
 
 -- Capture a single value marked by `n`
-markResult :: Sing n -> String -> Result (One n)
-markResult n s = Just (E s :> Nil)
+markResult :: Sing n -> DList Char -> Maybe (Dict (One n))
+markResult n s = Just (E (DList.toList s) :> Nil)
 
 ----------------------------------------------------------------
 -- Additional library functions, more flexible than match
@@ -250,32 +265,32 @@ markResult n s = Just (E s :> Nil)
 -- | Given r, return the result from the first part
 -- of the string that matches m (greedily... consume as much
 -- of the string as possible)
-matchInit :: Wf s => R s -> String -> (Result s, String)
+matchInit :: Wf s => RE s -> String -> (Maybe (Dict s), String)
 matchInit r (x:xs) = let r' = deriv r x in
                  if isVoid r' then (extract r, x:xs)
                  else matchInit r' xs
 matchInit r "" = (match r "", "")
 
 -- helper for below
-pextract :: Wf s => R s -> String -> (Result s, String)
+pextract :: Wf s => RE s -> String -> (Maybe (Dict s), String)
 pextract r "" = (match r "", "")
 pextract r t  = case matchInit r t of
  (Just r,s)  -> (Just r, s)
  (Nothing,_) -> pextract r (tail t)
 
--- | Extract groups from the first match of regular expression pat.
-extractOne :: Wf s => R s -> String -> Result s
+-- | Extract groups from the first match of regular expression
+extractOne :: Wf s => RE s -> String -> Maybe (Dict s)
 extractOne r s = fst (pextract r s)
 
--- | Extract groups from all matches of regular expression pat.
-extractAll :: Wf s => R s -> String -> [Dict s]
+-- | Extract groups from all matches of regular expression
+extractAll :: Wf s => RE s -> String -> [Dict s]
 extractAll r s = case pextract r s of
       (Just dict, "")   -> [dict]
       (Just dict, rest) -> dict : extractAll r rest
       (Nothing, _)      -> []
 
 -- | Does this string contain the regular expression anywhere
-contains :: Wf s => R s -> String -> Bool
+contains :: Wf s => RE s -> String -> Bool
 contains r s = case pextract r s of
    (Just r,_)  -> True
    (Nothing,_) -> False
@@ -283,12 +298,7 @@ contains r s = case pextract r s of
 -------------------------------------------------------------------------
 -- Show instances for regular expressions
 
-instance Show (Sing (s :: SM)) where
-  show r = "[" ++ show' r where
-    show' :: Sing (ss :: SM) -> String
-    show' SNil = "]"
-    show' (SCons (STuple2 sn so) ss) = show sn ++ "," ++ show' ss
-instance SingI n => Show (R n) where
+instance SingI n => Show (RE n) where
   show Rvoid  = "ϕ"
   show Rempty = "ε"
   show (Rseq r1 (Rstar r2)) | show r1 == show r2 = maybeParens r1 ++ "+"
@@ -305,7 +315,7 @@ instance SingI n => Show (R n) where
        chars_whitespace = " \t\n\r\f\v"
        chars_digit      = ['0' .. '9']
        chars_word       = ('_':['a' .. 'z']++['A' .. 'Z']++['0' .. '9'])
-  show (Rmark pn w r)  = "(?P<" ++ show pn ++ ">" ++ show r ++ ")"
+  show (Rmark pn w r)  = "(?P<" ++ showSym pn ++ ">" ++ show r ++ ")"
   show Rany = "."
   show (Rnot cs) = "[^" ++ concatMap escape (Set.toList cs) ++ "]"
 
@@ -314,10 +324,10 @@ escape :: Char -> String
 escape c  = if c `elem` specials then "\\" ++ [c] else [c] where
        specials         = ".[{}()\\*+?|^$"
 
-maybeParens :: SingI s => R s -> String
+maybeParens :: SingI s => RE s -> String
 maybeParens r = if needsParens r then "(" ++ show r ++ ")" else show r
 
-needsParens :: R s -> Bool
+needsParens :: RE s -> Bool
 needsParens Rvoid = False
 needsParens Rempty = False
 needsParens (Rseq r1 r2) = True

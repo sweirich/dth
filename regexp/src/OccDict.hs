@@ -10,19 +10,17 @@
 {-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
-{-
-   This file defines a dictionary that
-   statically tracks the set of keys as well as
-   three possible value types for each key: a single string,
-   an optional string, or a list of strings.
--}
-
+-- | This module defines a dictionary indexed by a "symbol occurrence map"
+-- This structure statically tracks the set of keys (symbols) as well as
+-- three possible value types for each key: a single string,
+-- an optional string, or a list of strings.
 module OccDict(
-  Occ(..), Dict(..), Entry(..), Wf(..), SM,
+  Occ(..), OccType(..), Dict(..), Entry(..), Wf(..), SymMap,
+  Symbol, showSym,
   Empty,One,Merge(..),Alt(..),Repeat(..),
   nils,combine,glueLeft,glueRight,
   module GHC.Records,
-  getMatch) where
+  getValues) where
 
 import Data.Kind(Type)
 import GHC.Records
@@ -32,33 +30,33 @@ import Data.Singletons.Prelude
 import Data.Singletons.TypeLits (Sing(..),
        Symbol(..),KnownSymbol(..),symbolVal)
 
--- We use the singletons library to lift definitions to the
--- type level
+-------------------------------------------------------------------------
+-- Symbol Maps
 
+-- | Occurrences: once, at most once, or any number of times
 $(singletons [d|
   data Occ = Once | Opt | Many deriving (Eq, Ord, Show)
   |])
+-- We use the 'singletons' library to automatically give us
+-- a Singleton type for Occ, plus definitions for Eq, Ord, Show.
 
--- The static description of a dictionary: a mapping of
+
+-- | The static description of a dictionary: a mapping of
 -- symbols to their occurrence information.
-type SM = [(Symbol,Occ)]
+type SymMap = [(Symbol,Occ)]
 
--- Operations on the symbol map.
-
--- Merge combines two lists, preserving the sorted order of the keys
--- Alt combines two lists, marking values that occurr in only one of the
---   two as optional
--- Repeat marks all values as repeated.
-
+-- We could use the singletons library as so to lift definitions to the type
+-- level. However, haddock doesn't support comments in TH. So we don't.
+{-
 $(singletons [d|
 
-  empty :: SM
+  empty :: SymMap
   empty = []
 
-  one :: Symbol -> SM
+  one :: Symbol -> SymMap
   one s = [(s,Once)]
 
-  merge :: SM -> SM -> SM
+  merge :: SymMap -> SymMap -> SymMap
   merge m  [] = m
   merge [] m  = m
   merge (e1@(s1,o1):t1) (e2@(s2,o2):t2) =
@@ -66,7 +64,7 @@ $(singletons [d|
     else if s1 <= s2 then e1 : merge t1 (e2:t2)
       else e2 : merge (e1:t1) t2
 
-  alt :: SM -> SM -> SM
+  alt :: SymMap -> SymMap -> SymMap
   alt [] [] = []
   alt ((n1,o1):t1) [] = (n1, max Opt o1): alt t1 []
   alt [] ((n2,o2):t2) = (n2, max Opt o2): alt [] t2
@@ -75,20 +73,25 @@ $(singletons [d|
       else if n1 <= n2 then (n1, max Opt o1) : alt t1 ((n2,o2):t2)
            else (n2, max Opt o2) : alt ((n1,o1):t1) t2
 
-  repeat :: SM -> SM
+  repeat :: SymMap -> SymMap
   repeat [] = []
   repeat ((n,o):t) = ((n, Many):repeat t)
 
   |])
+-}
 
-{-
--- this is the equivalent code that we could have written
 
+-- Equivalent to 'singletons' above.
+
+-- | Symbol map with no entries
 type Empty = '[]
 
+-- | Singleton map, with single occurrence
 type One s = '[ '(s,Once) ]
 
-type family Merge (a :: SM) (b :: SM) :: SM where
+-- | Combine two sorted maps, noting when symbols appear
+-- on both sides that we could have many occurrences
+type family Merge (a :: SymMap) (b :: SymMap) :: SymMap where
    Merge s  '[] = s
    Merge '[] s  = s
    Merge ('(n1,o1):t1) ('(n2,o2):t2) =
@@ -96,7 +99,10 @@ type family Merge (a :: SM) (b :: SM) :: SM where
         (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))
                         ('(n2, o2) : Merge ('(n1,o1):t1) t2))
 
-type family Alt (a :: SM) (b :: SM) :: SM where
+-- | Combine two (sorted) symbol maps
+-- Convert any occurrences that only appear on one side to 'Opt'
+-- otherwise, take the max
+type family Alt (a :: SymMap) (b :: SymMap) :: SymMap where
    Alt '[] '[] = '[]
    Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
    Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
@@ -105,19 +111,19 @@ type family Alt (a :: SM) (b :: SM) :: SM where
         (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))
                         ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
 
-type family Repeat (a :: SM) :: SM where
+-- | Convert all occurrences to 'Many'
+type family Repeat (a :: SymMap) :: SymMap where
    Repeat '[] = '[]
    Repeat ( '(n,o) : t) = '(n, Many) : Repeat t
--}
+
 
 
 -------------------------------------------------------------------------
 
--- A data structure indexed by a type-level map
--- Keeps the entries in sorted order by key
-data Dict :: SM -> Type where
+-- | A data structure indexed by a type-level map
+data Dict :: SymMap -> Type where
    Nil  :: Dict '[]
-   (:>) :: Entry a -> Dict tl -> Dict (a : tl)
+   (:>) :: Entry s o -> Dict tl -> Dict ('(s,o) : tl)
 
 infixr 5 :>
 
@@ -125,11 +131,13 @@ infixr 5 :>
 -- keys (as we already know them from the type).
 -- We only store the values, and the types of the values
 -- are determined by the type family below.
-data Entry :: (Symbol,Occ) -> Type where
-   E :: forall s o. OccType o -> Entry '(s,o)
+-- | An entry in the dictionary
+data Entry :: Symbol -> Occ -> Type where
+   E :: forall s o. OccType o -> Entry s o
 
 -- OccType is an *injective* type family. From the output we
 -- can determine the input during type inference.
+-- | A mapping from occurrence to the type of value stored in the dictionary
 type family OccType (o :: Occ) = (res :: Type) | res -> o where
   OccType Once = String
   OccType Opt  = Maybe String
@@ -144,13 +152,13 @@ example_dict = E @"b" "Regexp" :>
 -------------------------------------------------------------------------
 -- Accessor function for dictionaries (get)
 
-type family ShowSM (m :: SM) :: ErrorMessage where
-  ShowSM '[]         = Text ""
-  ShowSM '[ '(a,o) ] = Text a
-  ShowSM ('(a,o): m) = Text a :<>: Text ", " :<>: ShowSM m
+type family ShowSymMap (m :: SymMap) :: ErrorMessage where
+  ShowSymMap '[]         = Text ""
+  ShowSymMap '[ '(a,o) ] = Text a
+  ShowSymMap ('(a,o): m) = Text a :<>: Text ", " :<>: ShowSymMap m
 
 -- A proof that a particular name appears in the domain
-data Index (n :: Symbol)  (o :: Occ) (s :: SM) where
+data Index (n :: Symbol)  (o :: Occ) (s :: SymMap) where
   DH :: Index n o ('(n,o):s)
   DT :: Index n o s -> Index n o (t:s)
 
@@ -161,13 +169,13 @@ type Find n s = (FindH n s s :: Index n o s)
 
 -- The second argument is the original association list
 -- Provided so that we can create a more informative error message
-type family FindH (n :: Symbol) (s :: SM) (s2 :: SM) :: Index n o s where
+type family FindH (n :: Symbol) (s :: SymMap) (s2 :: SymMap) :: Index n o s where
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
      TypeError (Text "Hey StrangeLoop17!  I couldn't find a group named '" :<>:
                 Text n :<>: Text "' in" :$$:
-                Text "    {" :<>: ShowSM s2 :<>: Text "}")
+                Text "    {" :<>: ShowSymMap s2 :<>: Text "}")
 
 -- Look up an entry in the dictionary, given an index for a name
 -- The functional dependency guides type inference
@@ -189,9 +197,9 @@ instance (Get l) => Get (DT l) where
 --  getField    :: r -> a
 
 -- Instance for the Maybe in the result type
-instance (HasField n u t) => HasField n (Maybe u) (Maybe t) where
-  getField (Just x) = Just (getField @n x)
-  getField Nothing  = Nothing
+--instance (HasField n u t) => HasField n (Maybe u) (Maybe t) where
+--  getField (Just x) = Just (getField @n x)
+--  getField Nothing  = Nothing
 
 -- Instance for the Dictionary: if we can find the name
 -- without producing a type error, then type class
@@ -201,15 +209,16 @@ instance (Get (Find n s :: Index n o s),
          t ~ OccType o) => HasField n (Dict s) t where
   getField = getp @_ @_ @_ @(Find n s)
 
--- Alternate interface that turns everything into a [String]
-getMatch :: forall n s o.
-  (Get (Find n s :: Index n o s), SingI o) => Dict s -> [String]
-getMatch x = gg (sing :: Sing o) (getp @_ @_ @_ @(Find n s) x) where
+-- | Alternate interface that turns everything into a [String]
+getValues :: forall n s o.
+  (Get (Find n s :: Index n o s), SingI o) => Maybe (Dict s) -> [String]
+getValues (Just x) = gg (sing :: Sing o) (getp @_ @_ @_ @(Find n s) x) where
      gg :: Sing o -> OccType o -> [String]
      gg SOnce s       = [s]
      gg SOpt (Just s) = [s]
      gg SOpt Nothing  = []
      gg SMany s       = s
+getValues Nothing = []
 
 -------------------------------------------------------------------------
 -- Show instance for Dict
@@ -217,7 +226,7 @@ getMatch x = gg (sing :: Sing o) (getp @_ @_ @_ @(Find n s) x) where
 --instance Show (Sing (n :: Symbol)) where
 --  show ps@SSym = symbolVal ps
 
-instance (SingI n, SingI o) => Show (Entry '(n,o)) where
+instance (SingI n, SingI o) => Show (Entry n o) where
   show = showEntry sing sing where
 
 
@@ -228,21 +237,31 @@ instance SingI s => Show (Dict s) where
     showDict (SCons (STuple2 sn so) pp) (e :> Nil) = showEntry sn so e ++ "}"
     showDict (SCons (STuple2 sn so) pp) (e :> xs)  = showEntry sn so e ++ "," ++ showDict pp xs
 
-showEntry :: forall n o. Sing n -> Sing o -> Entry '(n,o) -> String
-showEntry sn so (E ss) = ssym sn ++ "=" ++ showData so ss where
+-- | Convert a runtime symbol to corresponding String
+showSym :: forall (n::Symbol). Sing n -> String
+showSym ps@SSym = symbolVal ps
 
-    ssym :: Sing n -> String
-    ssym ps@SSym = symbolVal ps
+showEntry :: forall n o. Sing n -> Sing o -> Entry n o -> String
+showEntry sn so (E ss) = showSym sn ++ "=" ++ showData so ss
 
-    showData :: Sing o -> OccType o -> String
-    showData SOnce ss = show ss
-    showData SOpt  ss = show ss
-    showData SMany ss = show ss
+-- pattern matching selects the instance that we need
+showData :: Sing o -> OccType o -> String
+showData SOnce = show
+showData SOpt  = show
+showData SMany = show
+
+-- Show a singleton Symbol Occurrence Map
+instance Show (Sing (s :: SymMap)) where
+  show r = "[" ++ show' r where
+    show' :: Sing (ss :: SymMap) -> String
+    show' SNil = "]"
+    show' (SCons (STuple2 sn so) ss) = showSym sn ++ "," ++ show' ss
+
 
 ------------------------------------------------------
 -- Operations on dictionaries (mostly used in extract, see below)
 
--- Merge two dictionaries together, preserving the sorting of the
+-- | Merge two dictionaries together, preserving the sorting of the
 -- entries
 combine :: Sing s1 -> Sing s2 -> Dict s1 -> Dict s2 -> Dict (Merge s1 s2)
 combine SNil SNil Nil Nil = Nil
@@ -271,7 +290,6 @@ defOcc SOnce = Nothing
 defOcc SOpt  = Nothing
 defOcc SMany = []
 
--- weaken a value to its maximum
 -- This was a not so bad to define.  I made it an id function for every case,
 -- then used the four type errors to figure out which lines to change.
 -- Agda-like splitting would have helped, though.
@@ -302,8 +320,7 @@ glueOccRight SMany m SOnce = m
 glueOccRight SMany m SOpt  = m
 glueOccRight SMany m SMany = m
 
--- Weaken a dictionary by converting all of its entries
--- to 'Max Opt o' versions.
+-- | Weaken a dictionary by converting all occurrences 'o' to 'Max Opt o'
 glueLeft :: Sing s1 -> Sing s2 -> Dict s2 -> Dict (Alt s1 s2)
 glueLeft SNil SNil Nil = Nil
 glueLeft SNil (s2@(SCons (STuple2 pt so2) st2))(e2@(E ts) :> t2) =
@@ -322,6 +339,7 @@ glueLeft (SCons e1@(STuple2 ps so1)  t1)
      SFalse -> E tocc :> glueLeft (SCons e1 t1) st2 t2 where
                  tocc = glueOccLeft SOpt so2 ts
 
+-- | Weaken a dictionary by converting all occurrences 'o' to 'Max Opt o'
 glueRight :: Sing s1 -> Dict s1 -> Sing s2 -> Dict (Alt s1 s2)
 glueRight SNil Nil SNil = Nil
 glueRight (SCons (STuple2 pt so2) st2) (e2@(E ts) :> t2) SNil =
@@ -341,7 +359,7 @@ glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(E ss) :> t1)
                   tocc = defOcc so2
 
 
--- A "default" Dict
+-- | A "default" Dict
 -- [] for each name in the domain of the set
 -- Needs a runtime representation of the set for construction
 -- Must use explicit type application when called because this function
@@ -362,15 +380,12 @@ instance WfOcc Once
 instance WfOcc Opt
 instance WfOcc Many
 
--- Well-founded sets are exactly those constructed only
--- from a finite number of [] and :
--- Well-founded sets *also* have the following properies
+-- | A constraint for "well-formed" symbol occurrence maps
 class (m ~ Alt m m,
        Repeat m ~ Repeat (Repeat m),
        Merge m (Repeat m) ~ Repeat m,
-       -- they also have runtime representations
        SingI m) =>
-       Wf (m :: SM)
+       Wf (m :: SymMap)
 
 
 -- proof of all base cases
@@ -381,7 +396,7 @@ instance (SingI n, WfOcc o, Wf s) => Wf ('(n, o) : s)
 
 -- this constraint rules out "infinite" sets of the form
 -- (which has a coinductive proof of the merge property?)
-type family T :: SM where
+type family T :: SymMap where
   T = '("a", Once) : T
 
 testWf :: Wf a => ()

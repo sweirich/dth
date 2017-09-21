@@ -1,18 +1,27 @@
 {-# LANGUAGE GADTSyntax #-}
-{-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes, 
+{-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes,
     PolyKinds, DataKinds #-}
 {-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
--- Based on:
+
+-- | This module implements regular expression submatching.
+-- It is based on:
 -- Sulzmann & Lu
 -- "Regular Expression SubMatching Using (Partial) Derivatives"
 -- Note: For simplicity, this implementation uses the Brzowozki
 -- derivatives, which are Posix based and backtracking.
+module Regexp(
+  RE(..),
 
--- See RegexpExample.hs for this library in action.
+  Dict(..), getValues,
 
-module Regexp where
+   -- functions to construct regexps
+  rempty, rvoid,rseq,ralt,ropt,rstar,rplus,rchar,rchars,
+  rany,rnot,rmark,rmarkSing,
+
+  -- regexp matching functions
+  match, matchInit, extractOne, extractAll, contains)  where
 
 import Data.Proxy
 import GHC.TypeLits
@@ -23,15 +32,17 @@ import qualified Data.Char as Char
 
 import Data.List(foldl')
 
+------
+
 type Result = Maybe Dict
 
 data Entry where
    Entry :: String -> [String] -> Entry
 
--- A list of entries, where each entry is an association
--- between a name, and the list of strings for that submatch.   
+-- | A list of entries, where each entry is an association
+-- between a name and the list of strings for that submatch.
 data Dict where
-   Nil  :: Dict 
+   Nil  :: Dict
    (:>) :: Entry -> Dict -> Dict
 
 infixr 5 :>
@@ -45,27 +56,25 @@ combine Nil b   = b
 combine b   Nil = b
 combine (e1@(Entry n1 ss1) :> t1) (e2@(Entry n2 ss2) :> t2) =
   case (n1 == n2) of
-   True ->  Entry n1 (ss1 ++ ss2) :> combine t1 t2     
+   True ->  Entry n1 (ss1 ++ ss2) :> combine t1 t2
    False -> case n1 <= n2 of
      True  -> e1 :> combine t1 (e2 :> t2)
-     False ->  e2 :> combine (e1 :> t1) t2 
+     False ->  e2 :> combine (e1 :> t1) t2
 
--- A "default" Dict.
--- [] for each name in the domain of the set
--- Needs a runtime representation of the set for construction
+-- | A "default" Dict.
 nils :: Dict
 nils = Nil
 
 -- | Combine two results together, combining their lists (if present)
 -- If either result fails, return Nothing
-both :: Result -> Result -> Result 
+both :: Result -> Result -> Result
 both (Just xs) (Just ys) = Just $ combine xs ys
 both _         _         = Nothing
 
 
 -- | Combine two results together, taking the first successful one
-first ::  Result -> Result -> Result 
-first Nothing  Nothing  = Nothing                      
+first ::  Result -> Result -> Result
+first Nothing  Nothing  = Nothing
 first Nothing  (Just y) = Just $ nils `combine` y
 first (Just x) _        = Just $ x `combine` nils
 
@@ -73,29 +82,25 @@ first (Just x) _        = Just $ x `combine` nils
 
 -------------------------------------------------------------------------
 
--- access a name from the dictionary.
+-- | access a name from the dictionary.
 -- If the name is not present, return the empty list
+getValues :: forall a. KnownSymbol a => Maybe Dict -> [String]
+getValues (Just (Entry t ss :> r)) | symbolVal (Proxy :: Proxy a) == t    = ss
+                                   | otherwise = getValues @a (Just r)
+getValues _                          = []
 
-getFieldD :: forall a. KnownSymbol a => Dict -> [String]
-getFieldD (Entry t ss :> r) | symbolVal (Proxy :: Proxy a) == t    = ss
-                           | otherwise = getFieldD @a r
-getFieldD Nil                          = []
-
-getField ::  forall a. KnownSymbol a => Maybe Dict -> [String]
-getField (Just d) = getFieldD @a d
-getField Nothing  = []
 ------------------------------------------------------
--- Our ADT for regular expressions
-data R where
-  Rempty :: R   
-  Rvoid  :: R          -- always fails, set can be anything 
-  Rseq   :: R -> R -> R
-  Ralt   :: R -> R -> R
-  Rstar  :: R -> R
-  Rchar  :: Set Char -> R  -- must be nonempty set
-  Rany   :: R
-  Rnot   :: Set Char -> R
-  Rmark  :: String -> String -> R -> R
+-- |  Our ADT for regular expressions
+data RE where
+  Rempty :: RE
+  Rvoid  :: RE         -- always fails, set can be anything
+  Rseq   :: RE-> RE -> RE
+  Ralt   :: RE-> RE -> RE
+  Rstar  :: RE-> RE
+  Rchar  :: Set Char -> RE -- must be nonempty set
+  Rany   :: RE
+  Rnot   :: Set Char -> RE
+  Rmark  :: String -> String -> RE -> RE
 
 
 -------------------------------------------------------------------------
@@ -107,16 +112,19 @@ data R where
 
 -- reduces (r,epsilon) (epsilon,r) to r
 -- (r,void) and (void,r) to void
-rseq :: R -> R -> R
+
+-- | Sequence (r1 r2)
+rseq :: RE -> RE -> RE
 rseq r1 r2 | isEmpty r1 = r2
 rseq r1 r2 | isEmpty r2 = r1
 rseq r1 r2 | isVoid r1 = Rvoid
 rseq r1 r2 | isVoid r2 = Rvoid
 rseq r1 r2             = Rseq r1 r2
 
--- Construct an alternative
-ralt :: R -> R -> R
-ralt r1 r2 | isVoid r1 = r2  
+
+-- | Alternation (r1|r2)
+ralt :: RE -> RE -> RE
+ralt r1 r2 | isVoid r1 = r2
 ralt r1 r2 | isVoid r2 = r1
 ralt (Rchar s1) (Rchar s2) = Rchar (s1 `Set.union` s2)
 ralt Rany       (Rchar s ) = Rany
@@ -124,56 +132,62 @@ ralt (Rchar s)  Rany       = Rany
 ralt (Rnot s1) (Rnot s2)   = Rnot (s1 `Set.intersection` s2)
 ralt r1 r2                 = Ralt r1 r2
 
--- convenience function for marks
-rmark :: forall a. KnownSymbol (a :: Symbol) => R -> R
+-- | Capture group marking (?P<n> r)
+-- MUST use explicit type application for 'n' to avoid ambiguity
+rmark :: forall a. KnownSymbol (a :: Symbol) => RE -> RE
 rmark = rmarkSing (Proxy :: Proxy a)
-      
-rmarkSing :: forall n proxy. KnownSymbol (n :: Symbol) => proxy n -> R -> R 
+
+-- | Capture group marking (?P<n> r)
+-- Can specify n via proxy or singleton
+rmarkSing :: forall n proxy. KnownSymbol (n :: Symbol) => proxy n -> RE -> RE
 rmarkSing n r = rmarkInternal (symbolVal n) "" r
 
-rmarkInternal :: String -> String -> R -> R 
+rmarkInternal :: String -> String -> RE -> RE
 rmarkInternal n w r | isVoid r = Rvoid
 rmarkInternal n w r = Rmark n w r
 
--- r** ~> r*
--- empty* ~> empty
-rstar :: R -> R
+-- | Kleene star  r*
+rstar :: RE -> RE
 rstar (Rstar s) = Rstar s
 rstar r | isEmpty r = rempty
 rstar s = Rstar s
 
--- this needs to have this type to make inference work
-rvoid :: R 
+-- | Matches nothing (and captures nothing)
+rvoid :: RE
 rvoid = Rvoid
 
--- convenience function for empty string
-rempty :: R
+-- | convenience function for empty string
+rempty :: RE
 rempty = Rempty
 
--- convenience function for single characters
-rchar :: Char -> R 
+-- | convenience function for single characters
+rchar :: Char -> RE
 rchar c = Rchar (Set.singleton c)
 
--- completeness
-rchars :: [Char] -> R
+-- | Matches any character in a set `[a-z]`
+rchars :: [Char] -> RE
 rchars = Rchar . Set.fromList
 
-rnot :: [Char] -> R 
+-- | Matches any character not in the set  `[^a]`
+rnot :: [Char] -> RE
 rnot = Rnot . Set.fromList
 
-ropt :: R -> R
+-- | Optional
+ropt :: RE -> RE
 ropt = ralt rempty
 
-rplus :: R -> R 
+-- | Matches one or more `r+`
+rplus :: RE -> RE
 rplus r = r `rseq` rstar r
 
-rany :: R
+-- | Matches any single character
+rany :: RE
 rany = Rany
 
 
 ------------------------------------------------------
 -- is this the regexp that always fails?
-isVoid :: R -> Bool
+isVoid :: RE -> Bool
 isVoid Rvoid          = True
 isVoid (Rseq r1 r2)   = isVoid r1 || isVoid r2
 isVoid (Ralt r1 r2)   = isVoid r1 && isVoid r2
@@ -183,7 +197,7 @@ isVoid _              = False
 
 -- is this the regexp that accepts only the empty string?
 -- and DOES NOT include any marks?
-isEmpty :: R -> Bool
+isEmpty :: RE -> Bool
 isEmpty Rempty         = True
 isEmpty (Rseq r1 r2)   = isEmpty r1 && isEmpty r2
 isEmpty (Ralt r1 r2)   = isEmpty r1 && isEmpty r2
@@ -192,17 +206,19 @@ isEmpty _ = False
 
 ------------------------------------------------------
 
--- matching using derivatives
--- we compute the derivative for each letter, then
--- extract the data structure stored in the regexp
-match :: R -> String -> Result 
+-- | matching using derivatives
+match :: RE -> String -> Result
 match r w = extract (foldl' deriv r w)
 
--- | Extract the result from the regular expression
+-- we compute the derivative for each letter, then
+-- extract the data structure stored in the regexp
+
+
+-- Extract the result from the regular expression
 -- if the regular expression is nullable
 -- even if the regular expression is not nullable, there
 -- may be some subexpressions that were matched, so return those
-extract :: R -> Result
+extract :: RE -> Result
 extract Rempty         = Just Nil
 extract (Rchar cs)     = Nothing
 extract (Rseq r1 r2)   = both  (extract r1) (extract r2)
@@ -212,8 +228,8 @@ extract (Rmark n s r)  = both mark (extract r) where
       mark = Just (Entry n [reverse s] :> Nil)
 extract _              = Nothing
 
--- Can the regexp match the empty string? 
-nullable :: R -> Bool
+-- Can the regexp match the empty string?
+nullable :: RE -> Bool
 nullable Rempty         = True
 nullable Rvoid          = False
 nullable (Rchar cs)     = False
@@ -225,10 +241,10 @@ nullable (Rany)         = False
 nullable (Rnot cs)      = False
 
 -- regular expression derivative function
-deriv :: R -> Char -> R
+deriv :: RE -> Char -> RE
 deriv Rempty        c = Rvoid
 deriv (Rseq r1 r2)  c =
-     ralt (rseq (deriv r1 c) r2) 
+     ralt (rseq (deriv r1 c) r2)
           (rseq (markEmpty r1) (deriv r2 c))
 deriv (Ralt r1 r2)  c = ralt (deriv r1 c) (deriv r2 c)
 deriv (Rstar r)     c = rseq (deriv r c) (rstar r)
@@ -240,7 +256,7 @@ deriv (Rnot s)      c = if Set.member c s then Rvoid else rempty
 
 -- Create a regexp that *only* matches the empty string
 -- (if it matches anything), but retains all captured strings
-markEmpty :: R -> R 
+markEmpty :: RE -> RE
 markEmpty (Rmark p w r) = Rmark p w (markEmpty r)
 markEmpty (Ralt r1 r2)  = ralt (markEmpty r1) (markEmpty r2)
 markEmpty (Rseq r1 r2)  = rseq (markEmpty r1) (markEmpty r2)
@@ -265,9 +281,9 @@ instance Show Dict  where
     show' (e :> Nil) = show e ++ "}"
     show' (e :> xs)  = show e ++ "," ++ show' xs
 
-instance Show R  where
-  show Rempty = "ε"                                            
-  show Rvoid  = "ϕ"   
+instance Show RE  where
+  show Rempty = "ε"
+  show Rvoid  = "ϕ"
   show (Rseq r1 r2) = show r1 ++ show r2
   show (Ralt r1 r2) = show r1 ++ "|" ++ show r2
   show (Rstar r)    = "(" ++ show r  ++ ")*"
@@ -290,38 +306,39 @@ instance Show R  where
 -------------------------------------------------------------------------
 instance Monoid Dict where
   mempty  = Nil
-  mappend = combine 
- 
+  mappend = combine
+
 
 ----------------------------------------------------------------
--- | Given r, return the result from the first part 
+-- | Given r, return the result from the first part
 -- of the string that matches m (greedily... consume as much
 -- of the string as possible)
-matchInit :: R -> String -> (Result, String)
+matchInit :: RE -> String -> (Result, String)
 matchInit r (x:xs) = let r' = deriv r x in
                  if isVoid r' then (extract r, x:xs)
                  else matchInit r' xs
 matchInit r "" = (match r "", "")
 
 
-pextract :: R -> String -> (Result, String)
+pextract :: RE -> String -> (Result, String)
 pextract r "" = (match r "", "")
 pextract r t  = case matchInit r t of
  (Just r,s)  -> (Just r, s)
  (Nothing,_) -> pextract r (tail t)
 
 -- | Extract groups from the first match of regular expression pat.
-extractOne :: R -> String -> Result 
+extractOne :: RE -> String -> Result
 extractOne r s = fst (pextract r s)
 
 -- | Extract groups from all matches of regular expression pat.
-extractAll :: R -> String -> [Dict]
+extractAll :: RE -> String -> [Dict]
 extractAll r s = case pextract r s of
       (Just dict, "")   -> [dict]
       (Just dict, rest) -> dict : extractAll r rest
       (Nothing, _)      -> []
 
-contains :: R -> String -> Bool
+-- | Does this string contain the regular expression anywhere
+contains :: RE -> String -> Bool
 contains r s = case (pextract r s) of
    (Just r,_)  -> True
    (Nothing,_) -> False

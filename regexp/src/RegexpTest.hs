@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeApplications, GADTs, DataKinds, PartialTypeSignatures #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
--- | some simple unit test cases for the regular expression module (no parser)
+-- | Some simple unit test cases for the regular expression module (no parser)
 -- If you happen to think that it is impossible to have bugs in Haskell programs,
 -- and especially not dependently-typed Haskell programs, you are sorely mistaken.
 -- I went through so many correctness and performance bugs in this implementation
@@ -9,6 +9,7 @@
 -- caveat emptor.
 module RegexpTest where
 
+--import Regexp
 import RegexpDependent
 -- The non-dependently-typed Regexp module exports the same interface as the
 -- RegexpDependent version. This helped me figure out the semantics of the
@@ -43,6 +44,8 @@ greedy = rstar (rmark @"a" (rchar 'a')
                 `ralt` (rmark @"ab" (rchar 'a' `rseq` rchar 'b'))
                 `ralt` (rmark @"b" (rchar 'b')))
 
+
+
 greedytest = match greedy "ab"
 -- returns Just [a:[],ab:["ab"],b:[]]
 
@@ -55,31 +58,32 @@ r12 =  ((ralt rempty (rmark @"n" (rchar 'a'))) `rseq` (rchar 'b'))
 
 r13 =  ((ralt (rmark @"n" (rchar 'a')) rempty) `rseq` (rchar 'b'))
 
+
 main = runTestTT $
        TestList [
          "1" ~: assert $ isJust (match r1 "a"),
          "2" ~: assert $ isNothing (match r1 "c"),
-         "3" ~: getField @"a" (match r2 "a") ~?= ["a"],
---         "4" ~: getField @"a" (match r4 "aa") ~?= [],
-         "5" ~: getField @"b" (match r4 "aa") ~?= ["aa"],
-         "6" ~: getField @"b" (match r4 "aaba") ~?= ["aa","ba"],
-         "7" ~: getField @"b" (match r5 "a") ~?= ["a"],
-         "8" ~: getField @"b" (match r5 "b") ~?= ["b"],
---         "9" ~: getField @"a" (match r5 "b") ~?= [],
-         "10" ~: getField @"b" (match r6 "a") ~?= [],
-         "11" ~: getField @"b" (match r6 "b") ~?= ["b"],
-         "12" ~: getField @"a" (match r6 "b") ~?= [],
-         "13" ~: getField @"b" (match r7 "b") ~?= ["b"],
-         "14" ~: getField @"x" (match r8 "aaa") ~?= ["aaa"],
-         "15" ~: getField @"c" (match r9 "cb") ~?= ["cb"],
-         "g1" ~: getField @"a"  greedytest ~?= [],
-         "g2" ~: getField @"ab" greedytest ~?= ["ab"],
-         "g3" ~: getField @"b"  greedytest ~?= [],
-         "c1" ~: getField @"a" (match r10 "a") ~?= ["a"],
-         "r11" ~: getField @"n" (match r11 "a}") ~?= ["a"],
-         "r12" ~: getField @"n" (match r12 "ab") ~?= ["a"],
-         "r13" ~: getField @"n" (match r13 "ab") ~?= ["a"]
---         "c2" ~: getField @"b" (match r10 "a") ~?= []
+         "3" ~: getValues @"a" (match r2 "a") ~?= ["a"],
+--         "4" ~: getValues @"a" (match r4 "aa") ~?= [],
+         "5" ~: getValues @"b" (match r4 "aa") ~?= ["aa"],
+         "6" ~: getValues @"b" (match r4 "aaba") ~?= ["aa","ba"],
+         "7" ~: getValues @"b" (match r5 "a") ~?= ["a"],
+         "8" ~: getValues @"b" (match r5 "b") ~?= ["b"],
+--         "9" ~: getValues @"a" (match r5 "b") ~?= [],
+         "10" ~: getValues @"b" (match r6 "a") ~?= [],
+         "11" ~: getValues @"b" (match r6 "b") ~?= ["b"],
+         "12" ~: getValues @"a" (match r6 "b") ~?= [],
+         "13" ~: getValues @"b" (match r7 "b") ~?= ["b"],
+         "14" ~: getValues @"x" (match r8 "aaa") ~?= ["aaa"],
+         "15" ~: getValues @"c" (match r9 "cb") ~?= ["cb"],
+         "g1" ~: getValues @"a"  greedytest ~?= [],
+         "g2" ~: getValues @"ab" greedytest ~?= ["ab"],
+         "g3" ~: getValues @"b"  greedytest ~?= [],
+         "c1" ~: getValues @"a" (match r10 "a") ~?= ["a"],
+         "r11" ~: getValues @"n" (match r11 "a}") ~?= ["a"],
+         "r12" ~: getValues @"n" (match r12 "ab") ~?= ["a"],
+         "r13" ~: getValues @"n" (match r13 "ab") ~?= ["a"]
+--         "c2" ~: getValues @"b" (match r10 "a") ~?= []
        ]
 
 
@@ -108,17 +112,17 @@ pbookstring = "(Steve 123-2222)(Stephanie 1202323)(Ellie 121.1222)(Sarah 324-344
 result = match pbook pbookstring
 
 
-nm = getField @"name"  result
-ph = getField @"phone" result
+nm = getValues @"name"  result
+ph = getValues @"phone" result
 
 -- Doesn't type check on enhanced versions
---bad = getField @"email" result
+--bad = getValues @"email" result
 
 -------------------------------------------------------------------------
 -- For RegexpDependent also check out the more refined types that are possible:
 
-nm2 = get @"name" $ fromJust (match entry "Stephanie")
-ph2 = get @"phone" $ fromJust (match entry "Stephanie")
+nm2 = getField @"name" $ fromJust (match entry "Stephanie")
+ph2 = getField @"phone" $ fromJust (match entry "Stephanie")
 
 -------------------------------------------------------------------------
 

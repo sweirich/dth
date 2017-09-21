@@ -3,14 +3,14 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
 
--- a quasiqoter for regular expressions
+-- | A quasiqoter for regular expressions
 module RegexpParser(module Regexp, re) where
 
 
 -- this QQ works with both interfaces
 -- because it generates the output at compile time
---import Regexp as Regexp
-import RegexpDependent as Regexp
+import Regexp as Regexp
+--import RegexpDependent as Regexp
 
 import Language.Haskell.TH hiding (match)
 import Language.Haskell.TH.Syntax
@@ -106,6 +106,7 @@ pp = runParser regexParser () ""
 
 --------------------------------------
 
+-- | Quasiquoter for regular expressions
 re :: QuasiQuoter
 re = QuasiQuoter {
     quoteExp  = compile
