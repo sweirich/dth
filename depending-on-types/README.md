@@ -1,10 +1,10 @@
-Examples from ["Depending on Types"](depending-on-types.pptx)
+Examples from ["Depending on Types"](../talks/depending-on-types.pptx)
 
 - [Okasaki.hs](Okasaki.hs)
    Chris Okasaki's 1993 functional pearl: insertion into red black trees
 
 - [RBT.agda](RBT.agda)
-   An Agda version that shows that insertion preserves the color 
+   An Agda version that shows that insertion preserves the color
    and height invariants (modified from code by Dan Licata).
 
 - [RBT.hs](RBT.hs)
