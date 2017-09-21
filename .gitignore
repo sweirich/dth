@@ -1,0 +1,7 @@
+*.agdai
+*.hi
+*.o
+*/dist
+*/.stack-work
+*/~$*
+*.pdf
