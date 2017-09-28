@@ -15,7 +15,7 @@
 -- three possible value types for each key: a single string,
 -- an optional string, or a list of strings.
 module OccDict(
-  Occ(..), OccType(..), Dict(..), Entry(..), Wf(..), SymMap,
+  Occ(..), OccType(..), Dict(..), Entry(..), Wf(..), OccMap,
   Symbol, showSym,
   Empty,One,Merge(..),Alt(..),Repeat(..),
   nils,combine,glueLeft,glueRight,
@@ -43,20 +43,20 @@ $(singletons [d|
 
 -- | The static description of a dictionary: a mapping of
 -- symbols to their occurrence information.
-type SymMap = [(Symbol,Occ)]
+type OccMap = [(Symbol,Occ)]
 
 -- We could use the singletons library as so to lift definitions to the type
 -- level. However, haddock doesn't support comments in TH. So we don't.
 {-
 $(singletons [d|
 
-  empty :: SymMap
+  empty :: OccMap
   empty = []
 
-  one :: Symbol -> SymMap
+  one :: Symbol -> OccMap
   one s = [(s,Once)]
 
-  merge :: SymMap -> SymMap -> SymMap
+  merge :: OccMap -> OccMap -> OccMap
   merge m  [] = m
   merge [] m  = m
   merge (e1@(s1,o1):t1) (e2@(s2,o2):t2) =
@@ -64,7 +64,7 @@ $(singletons [d|
     else if s1 <= s2 then e1 : merge t1 (e2:t2)
       else e2 : merge (e1:t1) t2
 
-  alt :: SymMap -> SymMap -> SymMap
+  alt :: OccMap -> OccMap -> OccMap
   alt [] [] = []
   alt ((n1,o1):t1) [] = (n1, max Opt o1): alt t1 []
   alt [] ((n2,o2):t2) = (n2, max Opt o2): alt [] t2
@@ -73,7 +73,7 @@ $(singletons [d|
       else if n1 <= n2 then (n1, max Opt o1) : alt t1 ((n2,o2):t2)
            else (n2, max Opt o2) : alt ((n1,o1):t1) t2
 
-  repeat :: SymMap -> SymMap
+  repeat :: OccMap -> OccMap
   repeat [] = []
   repeat ((n,o):t) = ((n, Many):repeat t)
 
@@ -91,7 +91,7 @@ type One s = '[ '(s,Once) ]
 
 -- | Combine two sorted maps, noting when symbols appear
 -- on both sides that we could have many occurrences
-type family Merge (a :: SymMap) (b :: SymMap) :: SymMap where
+type family Merge (a :: OccMap) (b :: OccMap) :: OccMap where
    Merge s  '[] = s
    Merge '[] s  = s
    Merge ('(n1,o1):t1) ('(n2,o2):t2) =
@@ -102,7 +102,7 @@ type family Merge (a :: SymMap) (b :: SymMap) :: SymMap where
 -- | Combine two (sorted) symbol maps
 -- Convert any occurrences that only appear on one side to 'Opt'
 -- otherwise, take the max
-type family Alt (a :: SymMap) (b :: SymMap) :: SymMap where
+type family Alt (a :: OccMap) (b :: OccMap) :: OccMap where
    Alt '[] '[] = '[]
    Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
    Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
@@ -112,7 +112,7 @@ type family Alt (a :: SymMap) (b :: SymMap) :: SymMap where
                         ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
 
 -- | Convert all occurrences to 'Many'
-type family Repeat (a :: SymMap) :: SymMap where
+type family Repeat (a :: OccMap) :: OccMap where
    Repeat '[] = '[]
    Repeat ( '(n,o) : t) = '(n, Many) : Repeat t
 
@@ -121,7 +121,7 @@ type family Repeat (a :: SymMap) :: SymMap where
 -------------------------------------------------------------------------
 
 -- | A data structure indexed by a type-level map
-data Dict :: SymMap -> Type where
+data Dict :: OccMap -> Type where
    Nil  :: Dict '[]
    (:>) :: Entry s o -> Dict tl -> Dict ('(s,o) : tl)
 
@@ -152,13 +152,13 @@ example_dict = E @"b" "Regexp" :>
 -------------------------------------------------------------------------
 -- Accessor function for dictionaries (get)
 
-type family ShowSymMap (m :: SymMap) :: ErrorMessage where
-  ShowSymMap '[]         = Text ""
-  ShowSymMap '[ '(a,o) ] = Text a
-  ShowSymMap ('(a,o): m) = Text a :<>: Text ", " :<>: ShowSymMap m
+type family ShowOccMap (m :: OccMap) :: ErrorMessage where
+  ShowOccMap '[]         = Text ""
+  ShowOccMap '[ '(a,o) ] = Text a
+  ShowOccMap ('(a,o): m) = Text a :<>: Text ", " :<>: ShowOccMap m
 
 -- A proof that a particular name appears in the domain
-data Index (n :: Symbol)  (o :: Occ) (s :: SymMap) where
+data Index (n :: Symbol)  (o :: Occ) (s :: OccMap) where
   DH :: Index n o ('(n,o):s)
   DT :: Index n o s -> Index n o (t:s)
 
@@ -169,13 +169,13 @@ type Find n s = (FindH n s s :: Index n o s)
 
 -- The second argument is the original association list
 -- Provided so that we can create a more informative error message
-type family FindH (n :: Symbol) (s :: SymMap) (s2 :: SymMap) :: Index n o s where
+type family FindH (n :: Symbol) (s :: OccMap) (s2 :: OccMap) :: Index n o s where
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
      TypeError (Text "Hey StrangeLoop17!  I couldn't find a group named '" :<>:
                 Text n :<>: Text "' in" :$$:
-                Text "    {" :<>: ShowSymMap s2 :<>: Text "}")
+                Text "    {" :<>: ShowOccMap s2 :<>: Text "}")
 
 -- Look up an entry in the dictionary, given an index for a name
 -- The functional dependency guides type inference
@@ -251,9 +251,9 @@ showData SOpt  = show
 showData SMany = show
 
 -- Show a singleton Symbol Occurrence Map
-instance Show (Sing (s :: SymMap)) where
+instance Show (Sing (s :: OccMap)) where
   show r = "[" ++ show' r where
-    show' :: Sing (ss :: SymMap) -> String
+    show' :: Sing (ss :: OccMap) -> String
     show' SNil = "]"
     show' (SCons (STuple2 sn so) ss) = showSym sn ++ "," ++ show' ss
 
@@ -381,11 +381,12 @@ instance WfOcc Opt
 instance WfOcc Many
 
 -- | A constraint for "well-formed" symbol occurrence maps
+-- Also includes a runtime representation of the map
 class (m ~ Alt m m,
        Repeat m ~ Repeat (Repeat m),
        Merge m (Repeat m) ~ Repeat m,
        SingI m) =>
-       Wf (m :: SymMap)
+       Wf (m :: OccMap)
 
 
 -- proof of all base cases
@@ -396,7 +397,7 @@ instance (SingI n, WfOcc o, Wf s) => Wf ('(n, o) : s)
 
 -- this constraint rules out "infinite" sets of the form
 -- (which has a coinductive proof of the merge property?)
-type family T :: SymMap where
+type family T :: OccMap where
   T = '("a", Once) : T
 
 testWf :: Wf a => ()

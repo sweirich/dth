@@ -51,7 +51,7 @@ import OccDict
 
 -- | Regular expressions, indexed by a symbol occurrence map that describes
 -- potential capture groups
-data RE (s :: SymMap) where
+data RE (s :: OccMap) where
   Rempty :: RE Empty
   Rvoid  :: RE s
   Rseq   :: (Wf s1, Wf s2) => RE s1 -> RE s2 -> RE (Merge s1 s2)
@@ -298,32 +298,54 @@ contains r s = case pextract r s of
 -------------------------------------------------------------------------
 -- Show instances for regular expressions
 
+-- Repetition takes precedence over concatenation,
+-- which in turn takes precedence over alternation.
+
+-- top 10
+-- r*+   7
+-- r1r2  6
+-- r1|r2 5
+
 instance SingI n => Show (RE n) where
-  show Rvoid  = "ϕ"
-  show Rempty = "ε"
-  show (Rseq r1 (Rstar r2)) | show r1 == show r2 = maybeParens r1 ++ "+"
-  show (Rseq r1 r2)    = show r1 ++ show r2
-  show (Ralt Rempty r) = maybeParens r ++ "?"
-  show (Ralt r1 r2) = "(" ++ show r1 ++ "|" ++ show r2 ++ ")"
-  show (Rstar r)    = maybeParens r ++ "*"
-  show (Rchar cs)   = if (Set.size cs == 1) then (escape (head (Set.toList cs)))
-                   else if cs == (Set.fromList chars_digit) then "\\d"
-                   else if cs == (Set.fromList chars_whitespace) then "\\s"
-                   else if cs == (Set.fromList chars_word) then "\\w"
-                   else "[" ++ concatMap escape (Set.toList cs) ++ "]"
+  showsPrec i Rvoid  = showString "ϕ"
+  showsPrec i Rempty = showString "ε"
+  showsPrec i (Rseq r1 (Rstar r2)) |
+    show r1 == show r2 =
+      showParen (i > 7) $ showsPrec 7 r1 . showString "+"
+  showsPrec i (Rseq r1 r2)    =
+    showParen (i > 6) $
+    showsPrec 6 r1 . showsPrec 6 r2
+  showsPrec i (Ralt Rempty r) =
+    showParen (i > 7) $
+    showsPrec 7 r . showString "?"
+  showsPrec i (Ralt r1 r2) =
+    showParen (i > 5) $
+    showsPrec 5 r1 . showString "|" . showsPrec 5 r2
+  showsPrec i (Rstar r)    =
+    showParen (i > 7) $
+    showsPrec 7 r . showString "*"
+  showsPrec i (Rchar cs)   = showString $
+    if (Set.size cs == 1) then (escape (head (Set.toList cs)))
+    else if cs == (Set.fromList chars_digit) then "\\d"
+    else if cs == (Set.fromList chars_whitespace) then "\\s"
+    else if cs == (Set.fromList chars_word) then "\\w"
+    else "[" ++ concatMap escape (Set.toList cs) ++ "]"
      where
        chars_whitespace = " \t\n\r\f\v"
        chars_digit      = ['0' .. '9']
        chars_word       = ('_':['a' .. 'z']++['A' .. 'Z']++['0' .. '9'])
-  show (Rmark pn w r)  = "(?P<" ++ showSym pn ++ ">" ++ show r ++ ")"
-  show Rany = "."
-  show (Rnot cs) = "[^" ++ concatMap escape (Set.toList cs) ++ "]"
+  showsPrec i (Rmark pn w r)  =
+    showString "(?P<" . showString (showSym pn) . showString ">" .
+    showsPrec 0 r . showString ")"
+  showsPrec i Rany = showString "."
+  showsPrec i (Rnot cs) = showString $ "[^" ++ concatMap escape (Set.toList cs) ++ "]"
 
 -- escape special characters
 escape :: Char -> String
 escape c  = if c `elem` specials then "\\" ++ [c] else [c] where
        specials         = ".[{}()\\*+?|^$"
 
+{-
 maybeParens :: SingI s => RE s -> String
 maybeParens r = if needsParens r then "(" ++ show r ++ ")" else show r
 
@@ -337,3 +359,4 @@ needsParens (Rchar cs)   = False
 needsParens (Rany)       = False
 needsParens (Rnot _)     = False
 needsParens (Rmark _ _ _) = False
+-}

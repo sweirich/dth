@@ -15,7 +15,7 @@ import Data.Maybe (fromJust)
 
 
 -- A regular expression for selecting the directories "dir"
--- basename "base" and extension "ext" from a path
+-- basename "base" and extension "ext" from a filepath
 
 path = [re|/?((?P<dir>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
 
@@ -24,9 +24,14 @@ path = [re|/?((?P<dir>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
 filename = "dth/regexp/Regexp.hs"
 dict = fromJust (match path filename)
 
+-- Access the components of the dictionary
+
 x      = getField @"base" dict
 y      = getField @"dir" dict
 z      = getField @"ext" dict
+
+-- Look for Haskell package that allows "expect type check failure
+
 --w      = getField @"f" dict
 
 
@@ -36,21 +41,21 @@ z      = getField @"ext" dict
 -- Type computation examples
 --
 
-r1 = rmark @"ext" (rstar rany)
+rext = rmark @"ext" (rstar rany)
 
-r2 = rmark @"base" rany
-
-
--- r1 r2
-ex1 = r1 `rseq` r2
+rbase = rmark @"base" rany
 
 
--- r1 | r1 r2
-ex2 = r1 `ralt` (r1 `rseq` r2)
+-- rext rbase
+ex1 = rext `rseq` rbase
 
 
--- r1 r1*
-ex3 = r1 `seq` (rstar r1)
+-- rext | rext rbase
+ex2 = rext `ralt` ex1
+
+
+-- rext rext
+ex3 = rext `rseq` rext
 
 
 
