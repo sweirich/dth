@@ -1,8 +1,10 @@
-{-# LANGUAGE TemplateHaskell, QuasiQuotes #-}  -- for regex parser
-{-# LANGUAGE DataKinds, GADTs, TypeFamilies, KindSignatures, ScopedTypeVariables,
-    TypeApplications, AllowAmbiguousTypes, TypeOperators #-}
+{-# LANGUAGE TemplateHaskell, QuasiQuotes #-}
+{-# LANGUAGE DataKinds, GADTs, TypeFamilies,
+    KindSignatures, ScopedTypeVariables,
+    TypeApplications, AllowAmbiguousTypes,
+    TypeOperators #-}
 
--- For best results for playing in ghci
+-- For best results in ghci
 --  :set -XTypeApplications
 --  :set -XDataKinds
 --  :set -XQuasiQuotes
@@ -26,13 +28,15 @@ dict = fromJust (match path filename)
 
 -- Access the components of the dictionary
 
-x      = getField @"base" dict
-y      = getField @"dir" dict
-z      = getField @"ext" dict
+x = getField @"base" dict
+y = getField @"dir" dict
+z = getField @"ext" dict
 
--- Look for Haskell package that allows "expect type check failure
 
---w      = getField @"f" dict
+--w = getField @"f" dict
+
+
+
 
 
 
@@ -41,21 +45,27 @@ z      = getField @"ext" dict
 -- Type computation examples
 --
 
-rext = rmark @"ext" (rstar rany)
+ra = rmark @"a" (rstar rany)
 
-rbase = rmark @"base" rany
-
-
--- rext rbase
-ex1 = rext `rseq` rbase
+rb = rmark @"b" rany
 
 
--- rext | rext rbase
-ex2 = rext `ralt` ex1
+
+ex1 = ra `rseq` rb
 
 
--- rext rext
-ex3 = rext `rseq` rext
+
+
+ex2 = ra `ralt` ex1
+
+
+
+ex3 = rstar ex2
+
+
+
+
+
 
 
 

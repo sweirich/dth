@@ -344,19 +344,3 @@ instance SingI n => Show (RE n) where
 escape :: Char -> String
 escape c  = if c `elem` specials then "\\" ++ [c] else [c] where
        specials         = ".[{}()\\*+?|^$"
-
-{-
-maybeParens :: SingI s => RE s -> String
-maybeParens r = if needsParens r then "(" ++ show r ++ ")" else show r
-
-needsParens :: RE s -> Bool
-needsParens Rvoid = False
-needsParens Rempty = False
-needsParens (Rseq r1 r2) = True
-needsParens (Ralt r1 r2) = True
-needsParens (Rstar r)    = True
-needsParens (Rchar cs)   = False
-needsParens (Rany)       = False
-needsParens (Rnot _)     = False
-needsParens (Rmark _ _ _) = False
--}

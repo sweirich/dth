@@ -173,7 +173,7 @@ type family FindH (n :: Symbol) (s :: OccMap) (s2 :: OccMap) :: Index n o s wher
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
-     TypeError (Text "Hey StrangeLoop17!  I couldn't find a group named '" :<>:
+     TypeError (Text "Hey StrangeLoop17!  I couldn't find a capture group named '" :<>:
                 Text n :<>: Text "' in" :$$:
                 Text "    {" :<>: ShowOccMap s2 :<>: Text "}")
 
