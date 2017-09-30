@@ -1,20 +1,17 @@
-{-# LANGUAGE TemplateHaskell, QuasiQuotes #-}
-{-# LANGUAGE DataKinds, GADTs, TypeFamilies,
-    KindSignatures, ScopedTypeVariables,
-    TypeApplications, AllowAmbiguousTypes,
-    TypeOperators #-}
-
 -- For best results in ghci
 --  :set -XTypeApplications
 --  :set -XDataKinds
 --  :set -XQuasiQuotes
 --  :set -XFlexibleContexts
+
+{-# LANGUAGE TemplateHaskell, QuasiQuotes,
+    DataKinds, GADTs, TypeFamilies,
+    TypeApplications, AllowAmbiguousTypes #-}
+
 module RegexpExample where
 
 import RegexpParser
 import Data.Maybe (fromJust)
-
-
 
 -- A regular expression for selecting the directories "dir"
 -- basename "base" and extension "ext" from a filepath
@@ -23,7 +20,7 @@ path = [re|/?((?P<dir>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
 
 -- match the regular expression against the string
 -- returning a dictionary of the matched substrings
-filename = "dth/regexp/Regexp.hs"
+filename = "dth/regexp/Example.hs"
 dict = fromJust (match path filename)
 
 -- Access the components of the dictionary
@@ -51,16 +48,18 @@ rb = rmark @"b" rany
 
 
 
-ex1 = ra `rseq` rb
+ex1 = rb `rseq` ra
 
 
 
 
-ex2 = ra `ralt` ex1
+ex2 = ra `ralt` (rb `rseq` ra)
 
 
 
-ex3 = rstar ex2
+
+
+ex3 = rstar (ra `rseq` rb)
 
 
 
