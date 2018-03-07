@@ -6,6 +6,7 @@
     FlexibleContexts, TypeSynonymInstances, FlexibleInstances,
     MultiParamTypeClasses, FunctionalDependencies #-}
 
+
 {-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
@@ -173,7 +174,7 @@ type family FindH (n :: Symbol) (s :: OccMap) (s2 :: OccMap) :: Index n o s wher
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
-     TypeError (Text "Hey StrangeLoop17!  I couldn't find a capture group named '" :<>:
+     TypeError (Text "Hey Comcast!  I couldn't find a capture group named '" :<>:
                 Text n :<>: Text "' in" :$$:
                 Text "    {" :<>: ShowOccMap s2 :<>: Text "}")
 
@@ -190,24 +191,33 @@ instance Get DH where
 instance (Get l) => Get (DT l) where
   getp ( _ :> xs) = getp @_ @_ @_ @l xs
 
-
--- Generic interface to flexible records
--- This class is now defined in GHC.Record to support overloaded field names
---class HasField (x :: k) r a | x r -> a where
---  getField    :: r -> a
-
--- Instance for the Maybe in the result type
---instance (HasField n u t) => HasField n (Maybe u) (Maybe t) where
---  getField (Just x) = Just (getField @n x)
---  getField Nothing  = Nothing
-
 -- Instance for the Dictionary: if we can find the name
 -- without producing a type error, then type class
 -- resolution for Get will generate the correct accessor
 -- function at compile time
+
 instance (Get (Find n s :: Index n o s),
          t ~ OccType o) => HasField n (Dict s) t where
   getField = getp @_ @_ @_ @(Find n s)
+
+
+{-
+class GetField (x :: Symbol) r a | x r -> a where
+  gets :: Dict r -> a
+
+instance GetField x xs a => HasField x (Dict xs) a where
+  getField = gets
+
+instance {-# OVERLAPPING #-} (t ~ OccType o) => GetField n ('(n,o):s) t where
+  gets (E v :> _) = v
+
+instance {-# OVERLAPPING #-} (GetField n s t) => GetField n ('(m,o):s) t where
+  gets (_ :> xs) = gets @n xs
+
+instance TypeError (Text "Cannot find name ") => GetField n '[] t where
+  gets = error "unreachable"
+-}
+
 
 -- | Alternate interface that turns everything into a [String]
 getValues :: forall n s o.
@@ -231,11 +241,11 @@ instance (SingI n, SingI o) => Show (Entry n o) where
 
 
 instance SingI s => Show (Dict s) where
-  show xs = "{" ++ showDict sing xs where
+  show xs = "{ " ++ showDict sing xs where
     showDict :: Sing xs -> Dict xs -> String
     showDict SNil Nil = "}"
-    showDict (SCons (STuple2 sn so) pp) (e :> Nil) = showEntry sn so e ++ "}"
-    showDict (SCons (STuple2 sn so) pp) (e :> xs)  = showEntry sn so e ++ "," ++ showDict pp xs
+    showDict (SCons (STuple2 sn so) pp) (e :> Nil) = showEntry sn so e ++ " }"
+    showDict (SCons (STuple2 sn so) pp) (e :> xs)  = showEntry sn so e ++ ", " ++ showDict pp xs
 
 -- | Convert a runtime symbol to corresponding String
 showSym :: forall (n::Symbol). Sing n -> String

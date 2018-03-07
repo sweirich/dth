@@ -29,8 +29,7 @@ x = getField @"base" dict
 y = getField @"dir" dict
 z = getField @"ext" dict
 
-
---w = getField @"f" dict
+-- w = getField @"f" dict
 
 
 
@@ -42,9 +41,13 @@ z = getField @"ext" dict
 -- Type computation examples
 --
 
+
 ra = rmark @"a" (rstar rany)
 
+
 rb = rmark @"b" rany
+
+
 
 
 
@@ -60,8 +63,6 @@ ex2 = ra `ralt` (rb `rseq` ra)
 
 
 ex3 = rstar (ra `rseq` rb)
-
-
 
 
 
