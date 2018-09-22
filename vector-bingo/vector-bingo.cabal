@@ -15,11 +15,13 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
+
 library
-  exposed-modules:   Vector, Aux
+  exposed-modules:   Vector
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
                       , random >= 1.1
   -- hs-source-dirs:
-  -- default-language:
+  default-language: Haskell2010
+
