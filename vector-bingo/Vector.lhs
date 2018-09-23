@@ -10,9 +10,10 @@ contents: An introductory talk about the role of dependent types in
 programming language research, using the "hello world" example of
 length-indexed vectors in the Haskell programming language.
 
-caveat: 
+caveat:
 
-note: 
+
+
 
 ===================================================================================
 
@@ -90,6 +91,21 @@ of any length.
 
 
 
+
+
+
+
+
+> instance Foldable (Vec n) where
+>   foldr f b vec       = undefined
+
+
+
+
+
+
+
+
 What is so useful about length indexed vectors?
 -----------------------------------------------
 Feature: control-sensitive typing
@@ -134,12 +150,10 @@ Historical interlude on GADTs
 
 BINGO
 =====
-
 Bingo is a game played with cards of random numbers. Every player has a
 different card. The columns are labeled so that players can find their numbers
 quickly. The first column contains numbers from 1-15, the second from 16-30,
 etc.
-
          B     I       N      G      O   
       +-----+------+------+------+------+
       | 14  |  28  |  35  |  57  |  68  |
@@ -155,6 +169,11 @@ etc.
 
 The game is played by having a caller read out numbers. The first player to
 mark a complete column, row or diagonal on the card wins.
+
+
+
+
+
 
 Here's one way we might represent a player's card, capturing the invariant that
 we have five columns, but the middle one only has four numbers.
@@ -448,10 +467,6 @@ Appendix
 > instance Show a => Show (Vec n a) where
 >   show Nil = "Nil"
 >   show (x :> xs) = show x ++ " :> " ++ show xs
-
-> instance Foldable (Vec n) where
->   foldr f b Nil       = b
->   foldr f b (x :> xs) = f x (foldr f b xs)
 
 -- Singleton Nats!
 

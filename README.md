@@ -1,4 +1,4 @@
-- [vector-bingo](vector-bingo/): Simple introduction
+- [vector-bingo](vector-bingo/): Simple introduction (PLMW 2018)
     + Using length-indexed lists to implement a bingo game
 
 - [regexp](regexp/): Example code from "Dependent Types in Haskell" 
