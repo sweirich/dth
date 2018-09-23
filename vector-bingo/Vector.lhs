@@ -2,7 +2,7 @@ title:   Dependent Types
 author:  Stephanie Weirich
 address: University of Pennsylvania
 event:   PLMW 2018
-date:    Sepember 23, 2018
+date:    September 23, 2018
 url:     https://github.com/sweirich/dth
 ========================================
 
@@ -11,6 +11,11 @@ programming language research, using the "hello world" example of
 length-indexed vectors in the Haskell programming language.
 
 caveat:
+
+
+
+
+
 
 
 
@@ -56,6 +61,11 @@ Here are some natural numbers that we can use in types.
 > type Four  = S Three
 > type Five  = S Four
 
+
+
+
+
+
 Natural numbers are good for counting, so we will use them to count the number
 of elements stored in a list.  The `Vec` datatype below is isomorphic to
 lists, bit its type is more information. The first type argument to `Vec` is
@@ -66,10 +76,6 @@ lists, bit its type is more information. The first type argument to `Vec` is
 >   (:>) :: a -> Vec n a -> Vec (S n) a 
 >
 > infixr :>
-
-For example, you can see in the declaration above that the empty vector has
-length zero.
-
 
 
 
@@ -84,20 +90,9 @@ But, the type is not always constraining. We can also work with vectors
 of any length.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 > instance Foldable (Vec n) where
->   foldr f b vec       = undefined
+>   foldr f b Nil  = b
+>   foldr f b (x :> xs) = x `f` (foldr f b xs)
 
 
 
@@ -111,7 +106,15 @@ What is so useful about length indexed vectors?
 Feature: control-sensitive typing
 
 
-Consider the Haskell standard library function 'maximum'....
+Consider 'maximum'....
+
+> safeMax :: (Ord a) => Vec (S n) a -> a
+> --safeMax (x :> Nil) = x
+> safeMax (x :> ys) = maximum (x :> ys)
+> --safeMax Nil = error "a"
+> --safeMax = maximum
+
+
 
 
 
@@ -175,6 +178,9 @@ mark a complete column, row or diagonal on the card wins.
 
 
 
+
+
+
 Here's one way we might represent a player's card, capturing the invariant that
 we have five columns, but the middle one only has four numbers.
 
@@ -191,6 +197,13 @@ we have five columns, but the middle one only has four numbers.
 >               n = 35 :> 34 :>       38 :> 43 :> Nil,
 >               g = 57 :> 46 :> 54 :> 47 :> 53 :> Nil,
 >               o = 68 :> 71 :> 72 :> 62 :> 61 :> Nil }
+
+
+
+
+
+
+
 
 
 
@@ -214,11 +227,16 @@ We want a function that looks like this:
 What is the type of this function? The type of the vector that we
 produce *depends* on the argument, n.
 
-   <<< .... >>>
+   <<< randomVec :: (Int,Int) -> Pi n:Nat -> Vec n Int >>>
 
 The difficulty is that we need to use the number 'n' as both
 a value (how many numbers to generate) and in the type
 (to describe the length of the list that we generated).
+
+
+
+
+
 
 
 
@@ -239,10 +257,18 @@ We have the numbers again, this time as terms with constrained types
 > sTwo :: SNat Two    -- SS (SS SZ) is only value of type SNat Two
 > sTwo = SS sOne
 
+
+
+
+
 So we can write the code we want, with this type
 
 > randomVec :: (Int,Int) -> SNat n -> IO (Vec n Int)
-> randomVec range n = undefined
+> randomVec range n = case n of
+>        SZ     -> return Nil                   -- empty vector for 0
+>        (SS m) -> do xs <- randomVec range m   -- generate vec of length m
+>                     x  <- fresh range xs      -- get a random # that is unused
+>                     return $ x :> xs
 
 
 
@@ -260,6 +286,12 @@ which gives us a way to generate random cards.
 >         <*> randomVec (31,45) sFour  -- only four numbers in the middle column!
 >         <*> randomVec (46,60) sFive
 >         <*> randomVec (61,75) sFive
+
+
+
+
+
+
 
 
 DTP feature: verified programming, Haskell-style
@@ -284,8 +316,8 @@ For example, we have
 > x = stl !! sTwo
 
 > -- This should *not* type check
-> -- y :: Char
-> -- y = stl !! sFive
+> --y :: Char
+> --y = stl !! sFive
 
 Let's use this code to write accessor functions for the rows of our bingo
 cards.
@@ -314,12 +346,17 @@ cards.
 
 
 > get0 :: Bingo a -> Vec Five a
-> get0 c = (b c !! m) :> (i c !! m) :> (n c !! m) :> (g c !! m) :> (o c !! m) :> Nil
->   where m = SZ
+> get0 c = error "get0 is unimplemented"
+
 
 > get1 :: Bingo a -> Vec Five a
 > get1 c = error "get1 is unimplemented"
->   where m = SS SZ
+   
+
+
+
+
+
 
 > get2 :: Bingo a -> Vec Four a   -- middle row has a free space
 > get2 c = undefined
@@ -389,10 +426,14 @@ DEPENDENT TYPES at ICFP 2018
 ICFP 2018
   - A Type and Scope Safe Universe of Syntaxes with Binding: Their Semantics and Proofs
   - Handling Delimited Continuations with Dependent Types
-  - Equivalences for Free: Univalent Parametricity for Effective Transport 
+  - [*] Equivalences for Free: Univalent Parametricity for Effective Transport 
   - Elaborating Dependent (Co)pattern Matching
   - Generic Zero-Cost Reuse for Dependent Types
-  - Ready, Set, Verify! Applying hs-to-coq to Real-World Haskell Code (Experience Report)
+  - Mtac2: Typed Tactics for Backwards Reasoning in Coq
+  - Ready, Set, Verify! Applying hs-to-coq to
+         Real-World Haskell Code (Experience Report)
+
+
 
 TyDe 2018
   - Authdenticated Modular Maps in Haskell
@@ -408,7 +449,7 @@ Tutorial
   - T01: Introduction to Programming and Proving in Cedille
   - T04: Beluga: Programming Proofs About Formal Systems
 
-Haskell (Not actually DT, but very much related)
+Haskell (Not actually DT, but related)
   - The Thoralf plugin: for your fancy type needs
   - Suggesting Valid Hole Fits for Typed-Holes (Experience Report)
   - Ghosts of Departed Proofs (Functional Pearl)
