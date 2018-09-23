@@ -3,7 +3,8 @@ author:  Stephanie Weirich
 address: University of Pennsylvania
 event:   PLMW 2018
 date:    Sepember 23, 2018
-===================================
+url:     https://github.com/sweirich/dth
+========================================
 
 contents: An introductory talk about the role of dependent types in
 programming language research, using the "hello world" example of
@@ -13,17 +14,14 @@ caveat:
 
 note: 
 
-topics:
-  - What *are* dependent types? What are they good for?
-  - What are the important research problems?
-  - How do you get started in dependent types research?
-
 ===================================================================================
 
 > {-# LANGUAGE TypeInType, TypeApplications, TypeFamilies, ScopedTypeVariables,
 >     DataKinds, GADTs, UndecidableInstances, TypeOperators, AllowAmbiguousTypes,
 >     TypeSynonymInstances, MultiParamTypeClasses, FlexibleContexts,
->     FlexibleInstances #-}
+>     FlexibleInstances, StandaloneDeriving #-}
+>
+> {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 > 
 > module Vector where
 > import System.Random
@@ -33,8 +31,16 @@ topics:
 What is a dependently typed programming language?
 =================================================
 
-Feature: Constrained data and control-sensitive typing
-------------------------------------------------------
+
+
+
+
+
+
+
+
+Feature: Constrained data
+-------------------------
 
 Natural numbers
 
@@ -45,17 +51,16 @@ Here are some natural numbers that we can use in types.
 > type Zero  = Z
 > type One   = S Z
 > type Two   = S One
-> type Three = S (S (S Z))
+> type Three = S (S (S Z)) -- either this or S Two works
 > type Four  = S Three
 > type Five  = S Four
 
-Natural numbers are good for counting, so we will use them
-to count the number of elements stored in a list.
-The `Vec` datatype below is isomorphic to lists, bit its
-type is more information. The first type argument to `Vec`
-is `n`, the length of the vector.
+Natural numbers are good for counting, so we will use them to count the number
+of elements stored in a list.  The `Vec` datatype below is isomorphic to
+lists, bit its type is more information. The first type argument to `Vec` is
+`n`, the length of the vector.
 
-> data Vec (n::Nat) a where
+> data Vec (n :: Nat) a where
 >   Nil  :: Vec Z a
 >   (:>) :: a -> Vec n a -> Vec (S n) a 
 >
@@ -64,23 +69,68 @@ is `n`, the length of the vector.
 For example, you can see in the declaration above that the empty vector has
 length zero.
 
-Here is another vector, and Haskell can tell that it has length three.
 
-> -- stl :: Vec Three Char
+
+
+
+> stl :: Vec Three Char
 > stl = 'S' :> 'T' :> 'L' :> Nil
 
-If we try to give it a different type, we will get a type error.
+If we try to give it a different type, we will get a type error. The vector
+is *constrained* by the type to be a certain length.
+
+But, the type is not always constraining. We can also work with vectors
+of any length.
+
+
+
+
+
+
+
+
 
 What is so useful about length indexed vectors?
 -----------------------------------------------
+Feature: control-sensitive typing
 
-Consider the Haskell standard library function 'maximum'.
 
-However, unlike lists, we can use the length to give a precondition to a safe
-version of `maximum` function.
+Consider the Haskell standard library function 'maximum'....
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Historical interlude on GADTs
 -----------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 BINGO
 =====
@@ -115,13 +165,24 @@ we have five columns, but the middle one only has four numbers.
 >                       g :: Vec Five a,
 >                       o :: Vec Five a }
 
+
+> card :: Bingo Int
+> card = Card { b = 14 :> 5  :> 4  :> 12 :> 11 :> Nil,   -- Columns
+>               i = 28 :> 21 :> 24 :> 27 :> 23 :> Nil, 
+>               n = 35 :> 34 :>       38 :> 43 :> Nil,
+>               g = 57 :> 46 :> 54 :> 47 :> 53 :> Nil,
+>               o = 68 :> 71 :> 72 :> 62 :> 61 :> Nil }
+
+
+
+
    
 DTP Feature: Pi types
 ---------------------
 
 Let's make some random bingo cards!
 
-First step, random vectors.
+First step, generate random vectors.
 
 We want a function that looks like this:
 
@@ -134,11 +195,14 @@ We want a function that looks like this:
 What is the type of this function? The type of the vector that we
 produce *depends* on the argument, n.
 
-   <<< randomVec dependent type >>>
+   <<< .... >>>
 
 The difficulty is that we need to use the number 'n' as both
 a value (how many numbers to generate) and in the type
 (to describe the length of the list that we generated).
+
+
+
 
 
 Singletons
@@ -167,7 +231,8 @@ So we can write the code we want, with this type
 
 
 
-So that we can generate a bingo card.
+
+which gives us a way to generate random cards.
 
 > randomCard :: IO (Bingo Int)
 > randomCard = do
@@ -219,9 +284,13 @@ cards.
    4    | 11  |  23  |  43  |  53  |  61  |
         +-----+------+------+------+------+
 
-So, get0 should give us the first row: 14 :> 28 :> 35 :> 57 :> 68 :> Nil
+`get0` should give us the first row
 
-And get2 should give us the third row: 4 :> 24 :> 54 :> 72 :> Nil 
+       14 :> 28 :> 35 :> 57 :> 68 :> Nil
+
+`get2` should give us the third row
+
+        4 :> 24 :> 54 :> 72 :> Nil 
 
 
 
@@ -230,7 +299,7 @@ And get2 should give us the third row: 4 :> 24 :> 54 :> 72 :> Nil
 >   where m = SZ
 
 > get1 :: Bingo a -> Vec Five a
-> get1 c = undefined
+> get1 c = error "get1 is unimplemented"
 >   where m = SS SZ
 
 > get2 :: Bingo a -> Vec Four a   -- middle row has a free space
@@ -246,7 +315,7 @@ And get2 should give us the third row: 4 :> 24 :> 54 :> 72 :> Nil
 >   where m = SS (SS (SS (SS SZ)))
 
 
-Take-home challenge:  check if we have a winner!!  
+Extra challenge:  check if we have a winner!!  
 
 > ldiag :: Bingo a -> Vec Four a
 > ldiag c = undefined
@@ -274,7 +343,7 @@ Take-home challenge:  check if we have a winner!!
 >  called x = x `elem` numbers
 
 
-How does this relate to PL research?
+How does this relate to FP research?
 -----------------------------------
 
 Open questions:
@@ -288,9 +357,11 @@ Open questions:
  - How do dependent types integrate with other features in programming languages?
 
  - Can we make the definition of equality more expressive?
-   (Univalence: isomorphic types are equal types)
+   (e.g. Univalence: isomorphic types are equal types)
 
- - What is the semantics of dependently-typed languages?
+ - Can we make proofs more automatic?
+
+ - Tool support?
 
   
 DEPENDENT TYPES at ICFP 2018
@@ -307,7 +378,8 @@ ICFP 2018
 TyDe 2018
   - Authdenticated Modular Maps in Haskell
   - Extensible Type Directed Editing
-  - Implementing Resource-Aware Safe Assembly for Kernel Probes as a Dependently-Typed DSL
+  - Implementing Resource-Aware Safe Assembly for Kernel Probes
+    as a Dependently-Typed DSL
   - Improving Error Messages for Dependent Types
 
 NPFL 
@@ -327,13 +399,14 @@ Haskell (Not actually DT, but very much related)
 More 
 ----
 
-To really 
+To really get into dependent types, try it out.
 
- Coq
- Agda
- Idris
- Cedille
- Beluga
+ - [Coq](https://coq.inria.fr/)
+ - [Agda](http://wiki.portal.chalmers.se/agda/pmwiki.php)
+ - [Idris](https://www.idris-lang.org/)
+ - [Cedille](https://cedille.github.io/)
+ - [Beluga](http://complogic.cs.mcgill.ca/beluga/)
+ - [LiquidHaskell](https://ucsd-progsys.github.io/liquidhaskell-blog/)
 
 
 
@@ -349,12 +422,11 @@ Some challenge problems for length-indexed vectors:
 
 - Show that insertion sort preserves the length of its input
 
-
 > isort :: Ord a => Vec n a -> Vec n a
 > isort = undefined
 
 - Show that reverse preserves the length of its input
-(This one is really challenging for Haskell.) 
+(This one is challenging for Haskell.) 
 
 You'll need a function that can appear in types, such as this one.
 (Or maybe a variant of this one.)
@@ -411,8 +483,10 @@ Appendix
 >    | otherwise     = s
 
 
-To print out a bingo card, we need to be able to access it row-by-row.
+> deriving instance Show a => Show (Bingo a)
 
+
+To print out a bingo card, we need to be able to access it row-by-row.
 -- How to show a vector as a row on a bingo card
 -- Four-element rows have a free space
 -- Five-element rows do not.
@@ -436,7 +510,7 @@ To print out a bingo card, we need to be able to access it row-by-row.
 >      padL 3 (show d) ++ "  | " ++
 >      padL 3 (show e) ++ "  |"
 
-
+> {-
 > instance Show a => Show (Bingo a) where
 >   show bingo =
 >               "   B     I       N      G      O   "
@@ -451,3 +525,4 @@ To print out a bingo card, we need to be able to access it row-by-row.
 >    ++ "\n" ++ "+-----+------+------+------+------+"
 >    ++ "\n" ++ showRow (get4 bingo)
 >    ++ "\n" ++ "+-----+------+------+------+------+"
+> -}

@@ -1,3 +1,6 @@
+- [vector-bingo](vector-bingo/): Simple introduction
+    + Using length-indexed lists to implement a bingo game
+
 - [regexp](regexp/): Example code from "Dependent Types in Haskell" 
     + Dependently-Typed Regular Expression Submatching
 
