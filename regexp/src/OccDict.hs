@@ -4,10 +4,8 @@
     TypeFamilyDependencies,
     TemplateHaskell, AllowAmbiguousTypes,
     FlexibleContexts, TypeSynonymInstances, FlexibleInstances,
-    MultiParamTypeClasses, FunctionalDependencies #-}
+    MultiParamTypeClasses, FunctionalDependencies,EmptyCase,StandaloneDeriving #-}
 
-
-{-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -fprint-expanded-synonyms #-}
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 
@@ -25,7 +23,7 @@ module OccDict(
 
 import Data.Kind(Type)
 import GHC.Records
-import GHC.TypeLits
+import GHC.TypeLits (ErrorMessage(..),TypeError)
 import Data.Singletons.TH
 import Data.Singletons.Prelude
 import Data.Singletons.TypeLits (Sing(..),
@@ -39,7 +37,7 @@ $(singletons [d|
   data Occ = Once | Opt | Many deriving (Eq, Ord, Show)
   |])
 -- We use the 'singletons' library to automatically give us
--- a Singleton type for Occ, plus definitions for Eq, Ord, Show.
+-- a Singleton type for Occ, plus definitions for Eq, Ord, and Show.
 
 
 -- | The static description of a dictionary: a mapping of
@@ -96,8 +94,8 @@ type family Merge (a :: OccMap) (b :: OccMap) :: OccMap where
    Merge s  '[] = s
    Merge '[] s  = s
    Merge ('(n1,o1):t1) ('(n2,o2):t2) =
-     If (n1 :== n2) ('(n1, 'Many) : Merge t1 t2)
-        (If (n1 :<= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))
+     If (n1 == n2) ('(n1, 'Many) : Merge t1 t2)
+        (If (n1 <= n2) ('(n1, o1) : Merge t1 ('(n2,o2):t2))
                         ('(n2, o2) : Merge ('(n1,o1):t1) t2))
 
 -- | Combine two (sorted) symbol maps
@@ -108,8 +106,8 @@ type family Alt (a :: OccMap) (b :: OccMap) :: OccMap where
    Alt ( '(n1,o1) : t1)  '[] = '(n1, Max Opt o1) : Alt t1 '[]
    Alt '[] ( '(n2,o2) : t2)  = '(n2, Max Opt o2) : Alt '[] t2
    Alt ('(n1,o1):t1) ('(n2,o2):t2) =
-     If (n1 :== n2) ('(n1, Max o1 o2) : Alt t1 t2)
-        (If (n1 :<= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))
+     If (n1 == n2) ('(n1, Max o1 o2) : Alt t1 t2)
+        (If (n1 <= n2) ('(n1, Max Opt o1) : Alt t1 ('(n2,o2):t2))
                         ('(n2, Max Opt o2) : Alt ('(n1,o1):t1) t2))
 
 -- | Convert all occurrences to 'Many'
@@ -174,7 +172,7 @@ type family FindH (n :: Symbol) (s :: OccMap) (s2 :: OccMap) :: Index n o s wher
   FindH n ('(n,o): s) s2 = DH
   FindH n ('(t,p): s) s2 = DT (FindH n s s2)
   FindH n '[]         s2 =
-     TypeError (Text "Hey Comcast!  I couldn't find a capture group named '" :<>:
+     TypeError (Text "Hey Haskell eXchange!  I couldn't find a capture group named '" :<>:
                 Text n :<>: Text "' in" :$$:
                 Text "    {" :<>: ShowOccMap s2 :<>: Text "}")
 
@@ -186,11 +184,13 @@ class Get (p :: Index n o s) | n s -> o where
 -- The entry we want is here!
 instance Get DH where
   getp (E v :> _ ) = v
-
+  {-# INLINE getp #-}
+  
 -- Need to keep looking
 instance (Get l) => Get (DT l) where
   getp ( _ :> xs) = getp @_ @_ @_ @l xs
-
+  {-# INLINE getp #-}
+  
 -- Instance for the Dictionary: if we can find the name
 -- without producing a type error, then type class
 -- resolution for Get will generate the correct accessor
@@ -199,25 +199,7 @@ instance (Get l) => Get (DT l) where
 instance (Get (Find n s :: Index n o s),
          t ~ OccType o) => HasField n (Dict s) t where
   getField = getp @_ @_ @_ @(Find n s)
-
-
-{-
-class GetField (x :: Symbol) r a | x r -> a where
-  gets :: Dict r -> a
-
-instance GetField x xs a => HasField x (Dict xs) a where
-  getField = gets
-
-instance {-# OVERLAPPING #-} (t ~ OccType o) => GetField n ('(n,o):s) t where
-  gets (E v :> _) = v
-
-instance {-# OVERLAPPING #-} (GetField n s t) => GetField n ('(m,o):s) t where
-  gets (_ :> xs) = gets @n xs
-
-instance TypeError (Text "Cannot find name ") => GetField n '[] t where
-  gets = error "unreachable"
--}
-
+  {-# INLINE getField #-}
 
 -- | Alternate interface that turns everything into a [String]
 getValues :: forall n s o.
@@ -261,12 +243,13 @@ showData SOpt  = show
 showData SMany = show
 
 -- Show a singleton Symbol Occurrence Map
+{-
 instance Show (Sing (s :: OccMap)) where
   show r = "[" ++ show' r where
     show' :: Sing (ss :: OccMap) -> String
     show' SNil = "]"
     show' (SCons (STuple2 sn so) ss) = showSym sn ++ "," ++ show' ss
-
+-}
 
 ------------------------------------------------------
 -- Operations on dictionaries (mostly used in extract, see below)
@@ -279,7 +262,7 @@ combine SNil _ Nil b = b
 combine _ SNil b Nil = b
 combine s1@(SCons (STuple2 ps so1) r1)  s2@(SCons (STuple2 pt so2) r2)
         (e1@(E ss) :> t1)              (e2@(E ts) :> t2) =
-  case ps %:== pt of
+  case ps %== pt of
    STrue  -> E (toMany so1 ss ++ toMany so2 ts) :> combine r1 r2 t1 t2
      where
        -- note that 'OccType Many' is [String]
@@ -289,7 +272,7 @@ combine s1@(SCons (STuple2 ps so1) r1)  s2@(SCons (STuple2 pt so2) r2)
        toMany SOpt  Nothing  = []
        toMany SMany ss       = ss
 
-   SFalse -> case ps %:<= pt of
+   SFalse -> case ps %<= pt of
      STrue  -> e1 :> combine r1 s2 t1 (e2 :> t2)
      SFalse -> e2 :> combine s1 r2 (e1 :> t1) t2
 
@@ -340,10 +323,10 @@ glueLeft (SCons (STuple2 ps so) t) SNil Nil =
   E (defOcc so) :> glueLeft t SNil Nil
 glueLeft (SCons e1@(STuple2 ps so1)  t1)
          (s2@(SCons (STuple2 pt so2) st2))(e2@(E ts) :> t2) =
-  case ps %:== pt of
+  case ps %== pt of
    STrue -> E tocc :> glueLeft t1 st2 t2 where
               tocc = glueOccLeft so1 so2 ts
-   SFalse -> case ps %:<= pt of
+   SFalse -> case ps %<= pt of
      STrue  -> E tocc :> glueLeft t1 s2 (e2 :> t2) where
                  tocc = defOcc so1
      SFalse -> E tocc :> glueLeft (SCons e1 t1) st2 t2 where
@@ -359,10 +342,10 @@ glueRight SNil Nil (SCons (STuple2 ps so) t) =
   E  (defOcc so) :> glueRight SNil Nil t
 glueRight s1@(SCons (STuple2 ps so1) st1) (e1@(E ss) :> t1)
           (SCons e2@(STuple2 pt so2) t2) =
-  case ps %:== pt of
+  case ps %== pt of
     STrue  -> E tocc :> glueRight st1 t1 t2 where
                 tocc = glueOccRight so1 ss so2
-    SFalse -> case ps %:<= pt of
+    SFalse -> case ps %<= pt of
       STrue  -> E tocc :> glueRight st1 t1 (SCons e2 t2) where
                   tocc = glueOccLeft SOpt so1 ss
       SFalse -> E tocc :> glueRight s1 (e1 :> t1) t2 where

@@ -304,6 +304,8 @@ instance Show RE  where
   show (Rnot cs) = "[^" ++ show cs ++ "]"
 
 -------------------------------------------------------------------------
+instance Semigroup Dict where
+  (<>)  = combine
 instance Monoid Dict where
   mempty  = Nil
   mappend = combine
