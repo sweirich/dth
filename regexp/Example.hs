@@ -13,8 +13,8 @@ module RegexpExample where
 import RegexpParser
 import Data.Maybe (fromJust)
 
--- A regular expression for selecting the directories "dir"
--- basename "base" and extension "ext" from a filepath
+-- A regular expression for selecting the directories "dir" basename "base"
+-- and extension "ext" from a filepath
 
 path = [re|/?((?P<dir>[^/]+)/)*(?P<base>[^\./]+)(?P<ext>\..*)?|]
 
@@ -30,6 +30,15 @@ y = getField @"dir" dict
 z = getField @"ext" dict
 
 --w = getField @"f" dict
+
+
+
+
+
+
+
+
+
 
 
 
