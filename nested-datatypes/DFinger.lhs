@@ -58,68 +58,68 @@ height of the 2-3 trees that are allowed at that level.
 > data Seq n a where
 >    Nil  :: Seq n a
 >    Unit :: TwoThree n a -> Seq n a
->    More :: Some (TwoThree n a) -> Seq (S n) a -> Some (TwoThree n a) -> Seq n a
+>    More :: Some n a -> Seq (S n) a -> Some n a -> Seq n a
 
-> data Some a = One a | Two a a | Three a a a
+> data Some n a = One (TwoThree n a) | Bump (Tuple (TwoThree n a))
 >    deriving (Eq,Show,Functor,Foldable,Traversable)
 
-> toList :: Some a -> [a]
+> toList :: Some n a -> [TwoThree n a]
 > toList (One x) = [x]
-> toList (Two x y) = [x, y]
-> toList (Three x y z) = [x,y,z]
+> toList (Bump (Pair x y)) = [x, y]
+> toList (Bump (Triple x y z)) = [x,y,z]
 
 
 > head :: Seq Z a -> a 
 > head Nil = error "no head"
 > head (Unit (Leaf x)) = x
 > head (More (One (Leaf x)) _ _ ) = x
-> head (More (Two (Leaf x) _) _ _) = x
-> head (More (Three (Leaf x) _ _) _ _) = x
+> head (More (Bump (Pair (Leaf x) _)) _ _) = x
+> head (More (Bump (Triple (Leaf x) _ _)) _ _) = x
 
 > head23 :: Seq n a -> TwoThree n a
 > head23 Nil = error "no head"
 > head23 (Unit x) = x
 > head23 (More (One x) _ _ ) = x
-> head23 (More (Two x _) _ _) = x
-> head23 (More (Three x _ _) _ _) = x
+> head23 (More (Bump (Pair x _)) _ _) = x
+> head23 (More (Bump (Triple x _ _)) _ _) = x
 
 > cons :: TwoThree n a -> Seq n a -> Seq n a
 > cons x Nil = Unit x
 > cons x (Unit y) = More (One x) Nil (One y)
-> cons x (More (One y) q u) = More (Two x y) q u
-> cons x (More (Two y z) q u) = More (Three x y z) q u
-> cons x (More (Three y z w) q u) = More (Two x y) (cons (Node (Pair z w)) q) u
+> cons x (More (One y) q u) = More (Bump (Pair x y)) q u
+> cons x (More (Bump (Pair y z)) q u) = More (Bump (Triple x y z)) q u
+> cons x (More (Bump (Triple y z w)) q u) = More (Bump (Pair x y)) (cons (Node (Pair z w)) q) u
 
->
+> 
 > snoc :: Seq n a -> TwoThree n a -> Seq n a
 > snoc Nil x = Unit x
 > snoc (Unit y) x = More (One y) Nil (One x)
-> snoc (More u q (One y)) x = More u q (Two y x) 
-> snoc (More u q (Two y z)) x = More u q (Three y z x)
-> snoc (More u q (Three y z w)) x = More u (snoc q (Node (Pair z w))) (Two y x)
-> 
+> snoc (More u q (One y)) x = More u q (Bump (Pair y x))
+> snoc (More u q (Bump (Pair y z))) x = More u q (Bump (Triple y z x))
+> snoc (More u q (Bump (Triple y z w))) x = More u (snoc q (Node (Pair z w))) (Bump (Pair y x))
+
 > 
 > tail :: Seq n a -> Seq n a
 > tail Nil = error "no tail"
 > tail (Unit _) = Nil
-> tail (More (Three _ x y) q u) = More (Two x y) q u
-> tail (More (Two _ x) q u) = More (One x) q u
+> tail (More (Bump (Triple _ x y)) q u) = More (Bump (Pair x y)) q u
+> tail (More (Bump (Pair _ x)) q u) = More (One x) q u
 > tail (More (One _ ) q u) = more0 q u
 >
 > uncons :: Seq n a -> Maybe (TwoThree n a, Seq n a)
 > uncons Nil = Nothing
 > uncons (Unit y) = Just (y,Nil)
-> uncons (More (Three w x y) q u) = Just (w, More (Two x y) q u)
-> uncons (More (Two w x) q u) = Just (w,More (One x) q u)
+> uncons (More (Bump (Triple w x y)) q u) = Just (w, More (Bump (Pair x y)) q u)
+> uncons (More (Bump (Pair w x)) q u) = Just (w,More (One x) q u)
 > uncons (More (One w) q u) = Just (w, more0 q u)
 
-> more0 :: Seq (S n) a -> Some (TwoThree n a) -> Seq n a
+> more0 :: Seq (S n) a -> Some n a -> Seq n a
 > more0 Nil (One y) = Unit y
-> more0 Nil (Two y z) = More (One y) Nil (One z)
-> more0 Nil (Three y z w) = More (One y) Nil (Two z w)
+> more0 Nil (Bump (Pair y z)) = More (One y) Nil (One z)
+> more0 Nil (Bump (Triple y z w)) = More (One y) Nil (Bump (Pair z w))
 > more0 q u =
 >   case uncons q of
->     Just (Node (Pair x y), tq) -> More (Two x y) tq u
+>     Just (Node (Pair x y), tq) -> More (Bump (Pair x y)) tq u
 >     Just (Node (Triple x _ _), _tq) -> More (One x) (map1 chop q) u
 >        where
 >          chop :: TwoThree n a -> TwoThree n a
@@ -153,8 +153,8 @@ height of the 2-3 trees that are allowed at that level.
 > map1 _f Nil = Nil
 > map1 f (Unit x) = Unit (f x)
 > map1 f (More (One x) q u) = More (One (f x)) q u
-> map1 f (More (Two x y) q u) = More (Two (f x) y) q u
-> map1 f (More (Three x y z) q u) = More (Three (f x) y z) q u
+> map1 f (More (Bump (Pair x y)) q u) = More (Bump (Pair (f x) y)) q u
+> map1 f (More (Bump (Triple x y z)) q u) = More (Bump (Triple (f x) y z)) q u
 > 
 > instance Semigroup (Seq n a) where
 >   q1 <> q2 = glue q1 [] q2

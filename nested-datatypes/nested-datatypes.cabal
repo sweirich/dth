@@ -20,6 +20,7 @@ extra-source-files:  CHANGELOG.md
 library
   exposed-modules:     Nested
                      , DFinger
+                     , Nat
   other-modules:       Two
   -- other-extensions:
   build-depends:       base >=4.13 && <4.14

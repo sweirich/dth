@@ -22,6 +22,7 @@ Warning: this module uses some *fancy* types.
 > {-# LANGUAGE StandaloneDeriving #-}
 > {-# LANGUAGE TypeApplications #-}
 > {-# LANGUAGE TypeFamilies #-}
+> {-# LANGUAGE UndecidableInstances #-}
 
 > {-# OPTIONS_GHC -Wno-name-shadowing -Wno-unticked-promoted-constructors #-}
 
