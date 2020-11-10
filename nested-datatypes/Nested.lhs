@@ -1,7 +1,7 @@
+title: Do we need nested datatypes?
 
-
-Do we need nested datatypes?
-============================
+Constraining the Shape of Data via Types
+========================================
 
 I always find nested datatypes a bit mysterious and their types a bit
 misleading. This module is my attempt to understand them a bit more clearly,
@@ -24,6 +24,7 @@ Warning: this module uses some *fancy* types.
 > {-# LANGUAGE StandaloneDeriving #-}
 > {-# LANGUAGE TypeApplications #-}
 > {-# LANGUAGE TypeFamilies #-}
+> {-# LANGUAGE TypeOperators #-}
 > {-# LANGUAGE UndecidableInstances #-}
 
 > {-# OPTIONS_GHC -Wno-name-shadowing -Wno-unticked-promoted-constructors #-}
@@ -36,9 +37,8 @@ Warning: this module uses some *fancy* types.
 > import Data.Type.Equality
 > import Data.Some
 
-
 Auxiliary type: Two
---------------------
+-------------------
 
 A brief digression before we get started. The examples here rely on
 the 'Two' data structure. This data structure contains *exactly* two elements
@@ -180,7 +180,8 @@ First, let's define some natural numbers so that we can count.
 > data Nat = S Nat | Z 
 
 Now, let's index the tree by its height and require that both subtrees in a
-node have the same height. 
+node have the same height. We'll use datatype promotion with our GADT so that
+we can refer to natural numbers in types.
 
 > data ITree (n :: Nat) (a :: Type) where
 >   DLeaf :: a -> ITree 'Z a
@@ -189,7 +190,29 @@ node have the same height.
 In this case, our tree datatype is now a GADT --- the result types of the leaf
 and node data constructors differ in the height index [4].
 
-Because `ITree` is a GADT, we have to use standalone deriving for the
+Furthermore, we haven't really implemented a type equivalent to `NTree a` because 
+the height index n "leaks" into the `ITree` type. Therefore, to define the equivalent
+type, we need to also use an existential type to hide this index. 
+
+> data DTree a = forall n. DTree (ITree n a) 
+
+Here are some example trees. They look a lot more like the regular tree type
+than the nested tree.
+
+> d1 :: DTree Int
+> d1 = DTree $ DLeaf 1
+
+> d2 :: DTree Int
+> d2 = DTree $ DNode (Two (DLeaf 1) (DLeaf 2))
+
+> -- not a perfect tree, doesn't type check
+> -- d3 = DTree $ DNode (Two (DNode (Two (DLeaf 1) (DLeaf 2))) (DLeaf 3))
+>
+> d4 :: DTree Int
+> d4 = DTree $ DNode (Two (DNode (Two (DLeaf 1) (DLeaf 2)))
+>                         (DNode (Two (DLeaf 3) (DLeaf 4))))
+
+Because `ITree` is a GADT, we have to use standalone deriving for the usual
 instances above. 
 
 > deriving instance Show a => Show (ITree n a)
@@ -199,22 +222,17 @@ instances above.
 > deriving instance Foldable (ITree n)
 > deriving instance Traversable (ITree n)
 
-Furthermore, we haven't really implemented a type equivalent to `NTree a` because 
-the height index n "leaks" into the `ITree` type. Therefore, to define the equivalent
-type, we need to also use an existential type to hide this index. For
-convenience we also include a singleton type for the natural number to have a runtime witness for
-that height [5]. (This singleton corresponds to the height prefix on the nested
-tree.)
+We can still derive many of the usual instances.  This time, we are using
+  polymorphic recursion only in the natural number, not in the two type parameters.
 
-> -- | Singleton type for natural numbers
-> data SNat :: Nat -> Type where
->   SZ :: SNat Z
->   SS :: SNat n -> SNat (S n)
-> deriving instance Show (SNat n)
-> -- no instance for Eq (SNat n)
-> -- no instance for Ord (SNat n)
+> dtmap :: forall n a b. (a -> b) -> (ITree n a -> ITree n b)
+> dtmap f (DLeaf x) = DLeaf (f x)
+> dtmap f (DNode (z :: Two (ITree m a)))
+>    = DNode (fmap (dtmap @m @a @b f) z)
 
-> data DTree a = forall n. DTree (SNat n) (ITree n a) 
+
+But, here is one cost to our GADT-based approach. The derived
+implementations of `Eq` and `Ord` don't type check for `DTree`!
 
 > deriving instance Show a => Show (DTree a)
 > -- no deriving instance Eq a => Eq (DTree a)
@@ -223,40 +241,21 @@ tree.)
 > deriving instance Foldable DTree
 > deriving instance Traversable DTree
 
-
-We can already see one cost to our GADT-based approach. The derived
-implementations of `Eq` and `Ord` don't type check for `DTree` trees.
-
-We can see the problem by looking at the error message for this attempt:
+We can see why by looking at the error message for this attempt:
 
 > -- treeEq :: Eq a => DTree a -> DTree a -> Bool
-> -- treeEq (DTree _ t1) (DTree _ t2) = t1 == t2
+> -- treeEq (DTree (t1 :: ITree n1 a)) (DTree (t2 :: ITree n2 a)) = t1 == t2
 
 If we try to define an equality function this way, the two `ITree`s have
-potentially different height parameters, so we cannot use the derived
+potentially different height indices, so we cannot use the derived
 equality function for `ITree`s.
 
-There are two ways we could implement equality for `DTree` trees. The
-first is to first make sure that the two trees are the same size before
-comparison. We can do this by checking if their height parameters are
-the same.
-
-> instance TestEquality SNat where
->   testEquality SZ SZ = Just Refl
->   testEquality (SS n) (SS m) 
->     | Just Refl <- testEquality n m
->     = Just Refl
->   testEquality _ _ = Nothing
+Therefore, to solve this issue, we need to define a type class for
+ *heterogeneous* equality. This type class allows us to compare arguments
+ with different types.
 
 > instance Eq a => Eq (DTree a) where
->    DTree n1 t1 == DTree n2 t2 =
->      case testEquality n1 n2 of
->        Just Refl -> t1 == t2   -- now we know t1 and t2 have the same height
->        Nothing   -> False
-
-
-Alternatively, we could define a heterogenous equality for `ITree`s and ignore
-  the height parameter altogether.
+>    DTree t1 == DTree t2 = t1 `heq` t2
 
 > class Heq a b where
 >    heq :: a -> b -> Bool
@@ -267,41 +266,13 @@ Alternatively, we could define a heterogenous equality for `ITree`s and ignore
 >    heq (DNode p1) (DNode p2) = heq p1 p2
 >    heq _ _ = False
 
-> peq :: Eq a => DTree a -> DTree a -> Bool
-> peq (DTree _ t) (DTree _ u) = heq t u
-
-Now, here are the examples. They look a lot more like the first tree type
-than the second.
-
-> d1 :: ITree 'Z Int
-> d1 = DLeaf 1
-
-> d2 :: ITree ('S 'Z) Int
-> d2 = DNode (Two (DLeaf 1) (DLeaf 2))
-
-> -- not perfect, doesn't type check
-> -- d3 = DNode (Two (DNode (Two (DLeaf 1) (DLeaf 2))) (DLeaf 3))
->
-> d4 :: ITree ('S ('S 'Z)) Int
-> d4 = DNode (Two (DNode (Two (DLeaf 1) (DLeaf 2)))
->                 (DNode (Two (DLeaf 3) (DLeaf 4))))
-
-We can use the same definitions, once again, for our common instances.  This
-time, we are using polymorphic recursion in the natural number, not in the
-two type parameters.
-
-> dtmap :: forall n a b. (a -> b) -> (ITree n a -> ITree n b)
-> dtmap f (DLeaf x) = DLeaf (f x)
-> dtmap f (DNode (z :: Two (ITree m a)))
->    = DNode (fmap (dtmap @m @a @b f) z)
 
 Type Family-based approach
 --------------------------
 
 There is still one more way to define a perfect binary tree. We can use a type
- family.  This type definition computes the appropriate nesting of `Two`
- copies of its argument, similar to the way that the nested datatype does so.
-
+family.  This type-level function computes the appropriate nesting of `Two`
+copies of its argument.
 
 > type family FTwo (n :: Nat) (a :: Type) :: Type where
 >   FTwo Z     a = a
@@ -311,25 +282,50 @@ The type `FTwo n a` is difficult to use. As a type family, it doesn't play
 well with GHC's unification because it is not injective. That is not a problem as long as
 all of the arguments are concrete:
 
-> f1 :: FTwo Z Int
-> f1 = 1
+> ft1 :: FTwo Z Int
+> ft1 = 1
 >
-> f2 :: FTwo (S Z) Int
-> f2 = Two 1 2
+> ft2 :: FTwo (S Z) Int
+> ft2 = Two 1 2
 >
-> f3 :: FTwo (S (S Z)) Int
-> f3 = Two (Two 1 2) (Two 3 4)
+> ft3 :: FTwo (S (S Z)) Int
+> ft3 = Two (Two 1 2) (Two 3 4)
 
 As above, we can hide the type parameter to `FTwo` behind another existential
- type.
+type. However, we will only be able to use the `FTwo` type if we also have
+access to a runtime version of the height. We cannot determine it from `FTwo
+n a` alone.  Therefore we also include a singleton type for the natural
+number [5]. 
 
 > data FTree a where
 >   FTree :: SNat n -> FTwo n a -> FTree a 
 
-However, with this type definition, we lose all possibility of deriving our
- standard instances. We must implement these definitions by hand. The
- implementations are fairly straightforward, but do require type annotations
- to resolve ambiguity.
+> -- | Singleton type for natural numbers
+> data SNat :: Nat -> Type where
+>   SZ :: SNat Z
+>   SS :: SNat n -> SNat (S n)
+
+> deriving instance Show (SNat n)
+> -- no instance for Eq (SNat n)
+> -- no instance for Ord (SNat n)
+
+Here are some examples of the `FTree` type. Compare them to the nested datatype
+version above --- the singleton nat corresponds to the height prefix on the nested
+tree.
+
+> f1 :: FTree Int
+> f1 = FTree SZ 1
+>
+> f2 :: FTree Int
+> f2 = FTree (SS SZ) (Two 1 2)
+>
+> f3 :: FTree Int
+> f3 = FTree (SS (SS SZ)) $ Two (Two 1 2) (Two 3 4)
+
+However, with the type family-based type definition, we lose all possibility
+of deriving our standard instances. We must implement all of them by
+hand. The implementations are fairly straightforward, but do require type
+annotations for the local `go` functions to resolve ambiguity.
 
 > instance Show a => Show (FTree a) where
 >   showsPrec d (FTree n x) = go d n x where
@@ -342,6 +338,20 @@ However, with this type definition, we lose all possibility of deriving our
 >                   . go 11 n p2
 >
 
+To implement equality for `FTree`, we need a way to 
+first make sure that the two trees are the same size before
+comparison. We can do this by using the following type class 
+instance, which produces a proof that the two type-level nats
+are the same when the terms are the same.
+
+> instance TestEquality SNat where
+>   testEquality :: SNat n1 -> SNat n2 -> Maybe (n1 :~: n2)
+>   testEquality SZ SZ = Just Refl
+>   testEquality (SS n) (SS m) 
+>     | Just Refl <- testEquality n m
+>     = Just Refl
+>   testEquality _ _ = Nothing
+
 > instance Eq a => Eq (FTree a) where
 >   (FTree n1 x1) == (FTree n2 x2) 
 >     | Just Refl <- testEquality n1 n2
@@ -351,57 +361,71 @@ However, with this type definition, we lose all possibility of deriving our
 >          eqFTwo (SS n) = \(Two x1 x2)(Two y1 y2) -> eqFTwo n x1 y1 && eqFTwo n x2 y2
 >   _ == _ = False
 
+Below, the scoped type variables & type application in the definition of the
+`Functor` instance demonstrate that, like `dtmap` above, we are using
+polymorphic recursion only on the height argument `n`, and not on the type
+arguments `a` and `b`.
+
 > instance Functor FTree where
->    fmap f (FTree n x) = FTree n (go f n x) where
->      go :: (a -> b) -> SNat n -> FTwo n a -> FTwo n b
->      go f SZ a = (f a)
->      go f (SS n) p = fmap (go f n) p
+>    fmap f (FTree n x) = FTree n (go n f x) where
+>      go :: forall n a b. SNat n -> (a -> b) -> FTwo n a -> FTwo n b
+>      go SZ f a = (f a)
+>      go (SS (m :: SNat m)) f p = fmap (go @m @a @b m f) p
 
 > instance Foldable FTree where
 >    foldMap :: Monoid m => (a -> m) -> FTree a -> m
->    foldMap f (FTree n x) = go f n x where
->      go :: Monoid m => (a -> m) -> SNat n -> FTwo n a -> m
->      go f SZ a = f a
->      go f (SS n) p = foldMap (go f n) p
+>    foldMap f (FTree n x) = go n f x where
+>      go :: Monoid m => SNat n -> (a -> m) -> FTwo n a -> m
+>      go SZ f a = f a
+>      go (SS n) f p = foldMap (go n f) p
 
 > instance Traversable FTree where
 >    traverse :: Applicative f => (a -> f b) -> FTree a -> f (FTree b)
->    traverse f (FTree n x) = FTree n <$> go f n x where
->      go :: Applicative f => (a -> f b) -> SNat n -> FTwo n a -> f (FTwo n b)
->      go f SZ a = f a
->      go f (SS n) p = traverse (go f n) p
+>    traverse f (FTree n x) = FTree n <$> go n f x where
+>      go :: Applicative f => SNat n -> (a -> f b) -> FTwo n a -> f (FTwo n b)
+>      go SZ f a = f a
+>      go (SS n) f p = traverse (go n f) p
 
 
 
 Comparison
 ==========
 
-How do `NTree` and `ITree`/`DTree` and `FTree` compare? 
+How do `NTree` and `DTree` and `FTree` compare? 
 
 Can we do the same thing with all of the trees?
 
 But can you invert that tree?
 -----------------------------
 
-Ok, let's mirror our trees. I don't know why you would want to do this. But it seems important.
+Ok, let's mirror our trees. I don't know why you would want to do this. But it
+seems important in technical coding interviews.
 
-Here's our basic building block. Swap the components of the Pair.
+Here's the basic building block of tree mirroring: swap the components of the Pair.
 
 > swap :: Two a -> Two a
 > swap (Two x y) = Two y x
 
-For perfect trees, we rely on a helper function that tells us that inverting the tree preserves
-its height. That's essential, because we reuse the same height when we package up the result.
+For regular trees, we recur over the tree and apply the `swap` function above.
+
+> invertTree :: Tree a -> Tree a
+> invertTree (Leaf x) = Leaf x
+> invertTree (Node p) = Node (swap (fmap invertTree p))
+
+For GADT-based trees, we rely on a helper function that tells us that inverting the tree preserves
+its height. 
 
 > invertDTree :: DTree a -> DTree a
-> invertDTree (DTree n t) = DTree n (invert t) where
+> invertDTree (DTree t) = DTree (invert t) where
 >    invert :: ITree n a -> ITree n a
 >    invert (DLeaf x) = DLeaf x
 >    invert (DNode p) = DNode (swap (fmap invert p))
 
 This code is roughly the same as the code for inverting regular trees.
 
-Inverting nested trees is slightly trickier. 
+Inverting nested trees is slightly trickier. With every recursive call, we
+need to construct a new "inversion function" `f` that we use to invert the
+entire tree in one go in the leaf case.
 
 > invertNTree :: NTree a -> NTree a
 > invertNTree = go id where
@@ -409,11 +433,13 @@ Inverting nested trees is slightly trickier.
 >   go f (NLeaf x) = NLeaf (f x)
 >   go f (NNode x) = NNode (go (swap . fmap f) (invertNTree x))
 
-With every recursive  call, we need to construct a  new "inversion function" f
- that we use to invert the entire tree in one go in the leaf case.
-
-And, the type family definition needs more care to be taken with type
- applications in order to avoid ambiguity from the use of `FTwo n a`.
+The code for the type family version is similar to the GADT version, but needs
+more care.  In this case, the helper function must show that inverting the
+tree does not change its height.  That's essential, because we reuse the same
+height when we package up the result.  Furthermore, we must use the type
+applications `@a` in this definition in order to avoid ambiguity from the use
+of `FTwo n a`. (We don't need to explicitly supply `n` because type inference
+can determine this type argument via `SNat`.)
 
 > invertFTree :: forall a. FTree a -> FTree a
 > invertFTree (FTree n t) = FTree n (invert @a n t) where
@@ -427,7 +453,8 @@ Tree replication
 Given some height `n`, and some value `x`, generate a perfect tree containing
  `2^n` copies of `x`.
 
-Straightforward with the usual tree datatype. 
+Straightforward with the usual tree datatype, though you really want to be careful
+to maintain sharing in the recursive calls (i.e. the local definition of `y`)
 
 > replicateTree :: a -> Int -> Tree a
 > replicateTree x = go where
@@ -444,6 +471,11 @@ create a tree with a lot of sharing.
 >   go a 0 = NLeaf a
 >   go a m = NNode (go (Two a a) (m - 1))
 
+For GADT-based and type-family based trees, we need to first interpret the height
+argument as `SNat` and then use that runtime natural number to control the size of tree
+that we generate. Without this, we don't have the static guarantee that we are generating
+a perfect tree.
+
 > fromInt :: Int -> Some SNat
 > fromInt 0 = Some $ SZ
 > fromInt n = case (fromInt (n-1)) of
@@ -451,7 +483,7 @@ create a tree with a lot of sharing.
 
 > replicateDTree :: a -> Int -> DTree a
 > replicateDTree x i = case fromInt i of
->     Some n -> DTree n (go x n)
+>     Some n -> DTree (go x n)
 >       where
 >         go :: a -> SNat n -> ITree n a
 >         go x SZ     = DLeaf x
@@ -473,7 +505,7 @@ Microbenchmark
 Ok, this is not a scientific study, but I did run the code. The nested
 datatype version seems faster. There's a performance hit for the GADT
 version, perhaps from using unary nats. And the type family version allocates
-twice as much for reasons I do not understand.
+twice as much for reasons that I do not understand.
 
 λ> :set +s
 λ> sum $ replicateTree (3::Int) 20
@@ -518,17 +550,21 @@ grafting means in this case:
 This is only successful if all of the embedded trees are the same height ---
  if they are different from eachother, then we get non-perfect trees.
 
-Our `ITree` type can talk about joining together trees that are all the same shape.
-But in this case, while we get a new perfect tree, it doesn't have the same height as the
-original.
-
-> djoin :: ITree n (ITree m a) -> ITree (Add n m) a
-> djoin (DLeaf t) = t
-> djoin (DNode (Two t1 t2)) = DNode (Two (djoin t1) (djoin t2))
+Our `ITree` and `FTwo` types can talk about joining together structures that
+ are all the same shape.  But in these cases, while we get a new perfect tree,
+ it doesn't have the same height as the original.
 
 > type family Add n m where
 >   Add Z m  = m
 >   Add (S n) m = S (Add n m)
+
+> djoin :: ITree n (ITree m a) -> ITree (Add n m) a
+> djoin (DLeaf t) = t
+> djoin (DNode p) = DNode (djoin <$> p)
+
+> fjoin :: forall a m n. SNat n -> FTwo n (FTwo m a) -> FTwo (Add n m) a
+> fjoin SZ t = t
+> fjoin (SS k) p = fjoin @a @m k <$> p
 
 Maybe there is a different interpretation of the `Applicative` and `Monad`
  type classes for `ITree`s?
@@ -554,78 +590,13 @@ For Applicatives, we can use the `ZipList` interpretation.
 
 But the type doesn't give us enough flexibility for a `Monad` instance.
 
-
-Converting between representations
-----------------------------------
-
-We can, with effort, convert a `NTree` to a `DTree` tree. And we can, with
- effort, convert a `DTree` tree to a `NTree`.
-
-Both of these conversions require the use of an auxiliary data structure that
-captures a "decomposed" nested tree. i.e. one where we have eliminated unary
-encoded prefix into a runtime natural number (i.e. `SNat`) and only have the
-nesting of the `Two` data structure.
-
-> data HT (a :: Type) where
->   HT :: SNat n -> NTwo n a -> HT a
-
-
-> n2p :: NTree a -> DTree a
-> n2p nt = case n2ht nt of
->           HT n s -> DTree n (ht2d n s)
-
-> -- | decompose the prefix find out the height of the perfect tree
-> n2ht :: NTree a -> HT a 
-> n2ht (NLeaf a) = HT SZ a
-> n2ht (NNode t) = case n2ht t of
->   HT m p -> HT (SS m) p
->
->  -- This is a nested type. We're just counting the number of iterations.
-> type family NTwo (n :: Nat) (a :: Type) :: Type where
->   NTwo Z     a = a
->   NTwo (S n) a = NTwo n (Two a)
-
-> 
-> -- | take the tree structure itself and convert it to the indexed version
-> ht2d :: SNat n -> NTwo n a -> ITree n a
-> ht2d SZ a = DLeaf a
-> ht2d (SS m) p = DNode (dsplit (ht2d m p))
->   where
->     dsplit :: ITree n (Two a) -> Two (ITree n a)
->     dsplit (DLeaf (Two x y))   = Two (DLeaf x) (DLeaf y)
->     dsplit (DNode (Two t1 t2)) = Two (DNode (Two t1a t2a)) (DNode (Two t1b t2b))
->        where
->          (Two t1a t1b) = dsplit t1
->          (Two t2a t2b) = dsplit t2
->
-
-> p2n :: DTree a -> NTree a
-> p2n (DTree n dt) = ht2n (HT n (d2ht dt))
->
-> ht2n :: forall a. HT a -> NTree a
-> ht2n (HT SZ x) = NLeaf x
-> ht2n (HT (SS m) x) = NNode (ht2n (HT m x))
-
-> d2ht :: forall n a. ITree n a -> NTwo n a
-> d2ht (DLeaf a) = a
-> d2ht (DNode (Two p1 p2)) = d2ht (dmerge p1 p2)
->   where
->     dmerge :: forall n a. ITree n a -> ITree n a -> ITree n (Two a)
->     dmerge (DLeaf x) (DLeaf y) = DLeaf (Two x y)
->     dmerge (DNode (Two t1a t1b)) (DNode (Two t2a t2b)) =
->          DNode (Two (dmerge t1a t2a) (dmerge t1b t2b))
-
-Due to the need for `dsplit` and `dmerge`, both of these operations take
-longer than we might like. The ideal would be `O (n + log n)`, which is just `O(n)`.
-But instead we get `O (n log n)`.
-
 Parse, don't validate
 ---------------------
 
 Can we write functions that validate a perfect `Tree` as an `NTree`, `DTree`
   or `FTree`?
 
-> -- Validation function, check that the input is a
+> -- Validation function for nested trees, check that the input is a
 > -- valid tree using the smart constructors of the class
 > toNTree :: Tree a -> Maybe (NTree a)
 > toNTree (Leaf x) = return (NLeaf x)
@@ -648,18 +619,28 @@ longer than we might like. The ideal would be `O (n + log n)`, which is just `O(
 But instead we get `O (n log n)`.
 
 For the GADT and type family-based approaches, validation and conversion is
-   much more straightforward and runs in linear time.
+much more straightforward. But, still O (n log n) from the equality
+comparison on unary nats. If we were to use an optimized representation of
+this data, we could get a linear time conversion.
+
+> data SomeITree a where
+>   SomeITree :: SNat n -> ITree n a -> SomeITree a 
+> forget :: SomeITree a -> DTree a
+> forget (SomeITree _ dt) = DTree dt
 
 > toDTree :: Tree a -> Maybe (DTree a)
-> toDTree (Leaf x) = return (DTree SZ (DLeaf x))
-> toDTree (Node p) = traverse toDTree p >>= node where
->    node :: Two (DTree a) -> Maybe (DTree a)
->    node (Two (DTree n1 u1) (DTree n2 u2)) = do
->      Refl <- testEquality n1 n2
->      return $ DTree (SS n1) (DNode (Two u1 u2))
+> toDTree t = forget <$> go t 
+>   where
+>     go :: Tree a -> Maybe (SomeITree a)
+>     go (Leaf x) = return (SomeITree SZ (DLeaf x))
+>     go (Node p) = traverse go p >>= node where
+>      node :: Two (SomeITree a) -> Maybe (SomeITree a)
+>      node (Two (SomeITree n1 u1) (SomeITree n2 u2)) = do
+>        Refl <- testEquality n1 n2
+>        return $ SomeITree (SS n1) (DNode (Two u1 u2))
 >
 > fromDTree :: DTree a -> Tree a
-> fromDTree (DTree _ t) = go t where
+> fromDTree (DTree t) = go t where
 >      go :: ITree n a -> Tree a
 >      go (DLeaf x) = Leaf x
 >      go (DNode p) = Node (go <$> p)
@@ -684,11 +665,20 @@ For the GADT and type family-based approaches, validation and conversion is
 Other examples
 --------------
 
-* Perfect trees with data at the nodes
+Perfect trees are a fairly constrained, symmetric and artificial data
+ structure. Was it just a fluke that we could define the GADT and type-family
+analogues to the nested datatype definition?
+
+I don't think so. 
+
 * Other Okasaki data structures
 * Well-scoped expressions
 * Finger trees
 
+Furthermore, how robust are nested datatypes, in general. For example, I don't
+see how to augment the `NTree` data structrue to include values at the nodes
+in addition to the leaves. But for GADT-based an type family based
+definitions, this modification is straightforward.
 
 Conclusion
 ----------

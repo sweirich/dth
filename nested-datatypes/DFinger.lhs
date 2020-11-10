@@ -24,8 +24,8 @@ It is a reinterpretation of the FingerTree data structure using GADTs in place o
 > module Finger where
 >
 > import Prelude hiding (tail,head)
+> import Data.Kind (Type)
 > import Nat
-
 
 Two-Three Trees
 ---------------
@@ -38,8 +38,7 @@ same height.
 > data Tuple a = Pair a a | Triple a a a
 >   deriving (Eq, Show, Functor, Foldable, Traversable)
 
-> -- A two-three tree of depth n
-> -- NOTE: height 0 is just a single value
+> -- A two-three tree of height n, with values of type a at the leaves
 > data TwoThree n a where
 >    Leaf :: a -> TwoThree Z a
 >    Node :: Tuple (TwoThree n a) -> TwoThree (S n) a
@@ -50,17 +49,16 @@ same height.
 > deriving instance Foldable (TwoThree n)
 > deriving instance Traversable (TwoThree n)
 
+NOTE: height 0 is just a single value.
 
 Sequences / FingerTrees
 -----------------------
 
-We will use these 2-3 trees as the building block of FingerTrees. Here the n
+We will use these 2-3 trees as the building block of FingerTrees. Here the `n`
 parameter works in reverse of the 2-3 trees above: in each recursive call it
-increates --- and tracks the height of the 2-3 trees that are allowed at
-that level.
+increases, allowing each subsequent level to use larger 2-3 trees.
 
-> -- still like a nested type --- number grows with each recursive use
-> data Seq n a where
+> data Seq (n :: Nat) (a :: Type) where
 >    Nil  :: Seq n a
 >    Unit :: TwoThree n a -> Seq n a
 >    More :: Some n a -> Seq (S n) a -> Some n a -> Seq n a
@@ -89,7 +87,6 @@ Two/Three constructors.  Not sure that it helps anything.
 > cons x (More (Bump (Pair y z)) q u) = More (Bump (Triple x y z)) q u
 > cons x (More (Bump (Triple y z w)) q u) = More (Bump (Pair x y)) (cons (Node (Pair z w)) q) u
 
-> 
 > snoc :: Seq n a -> TwoThree n a -> Seq n a
 > snoc Nil x = Unit x
 > snoc (Unit y) x = More (One y) Nil (One x)
@@ -109,7 +106,7 @@ Two/Three constructors.  Not sure that it helps anything.
 > uncons Nil = Nothing
 > uncons (Unit y) = Just (y,Nil)
 > uncons (More (Bump (Triple w x y)) q u) = Just (w, More (Bump (Pair x y)) q u)
-> uncons (More (Bump (Pair w x)) q u) = Just (w,More (One x) q u)
+> uncons (More (Bump (Pair w x)) q u) = Just (w, More (One x) q u)
 > uncons (More (One w) q u) = Just (w, more0 q u)
 
 > more0 :: Seq (S n) a -> Some n a -> Seq n a
@@ -142,18 +139,13 @@ Two/Three constructors.  Not sure that it helps anything.
 > toList (Bump (Pair x y)) = [x, y]
 > toList (Bump (Triple x y z)) = [x,y,z]
 
->
->
-> 
 > glue :: Seq n a -> [ TwoThree n a ] -> Seq n a -> Seq n a
 > glue Nil as q2 = foldr cons q2 as
 > glue q1 as Nil = foldl snoc q1 as
 > glue (Unit x) as q2 = foldr cons q2 (x : as)
 > glue q1 as (Unit y) = foldl snoc q1 (as ++ [y])
 > glue (More u1 q1 v1) as (More u2 q2 v2) =
->   More u1
->   (glue q1 (map Node (toTuples (toList v1 ++ as ++ toList u2))) q2) v2
-> 
+>   More u1 (glue q1 (map Node (toTuples (toList v1 ++ as ++ toList u2))) q2) v2
 
 > map1 :: (TwoThree n a -> TwoThree n a) -> Seq n a  -> Seq n a
 > map1 _f Nil = Nil
