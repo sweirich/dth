@@ -1,6 +1,9 @@
-Finger Trees Explained Anew, and Slightly Simplified (Functional Pearl)
+This module is inspired by 
 
-This time, using GADTs instead of nested datatypes
+   Claessen, Finger Trees Explained Anew, and Slightly Simplified (Functional Pearl)
+   Haskell Symposium 2020
+
+It is a reinterpretation of the FingerTree data structure using GADTs in place of nested datatypes.
 
 > {-# LANGUAGE UndecidableInstances #-}
 > {-# LANGUAGE DataKinds #-}
@@ -31,6 +34,10 @@ We start by implementing 2-3 trees that statically track their height.  This
 index ensures that the tree is balanced. All subtrees must have the exactly the
 same height.
 
+> -- two or three values
+> data Tuple a = Pair a a | Triple a a a
+>   deriving (Eq, Show, Functor, Foldable, Traversable)
+
 > -- A two-three tree of depth n
 > -- NOTE: height 0 is just a single value
 > data TwoThree n a where
@@ -43,16 +50,14 @@ same height.
 > deriving instance Foldable (TwoThree n)
 > deriving instance Traversable (TwoThree n)
 
-> -- two or three values
-> data Tuple a = Pair a a | Triple a a a
->   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 Sequences / FingerTrees
 -----------------------
 
-We will use these 2-3 trees as the building block of FingerTrees. Here
-the n parameter works in reverse: in each recursive call it tracks the
-height of the 2-3 trees that are allowed at that level.
+We will use these 2-3 trees as the building block of FingerTrees. Here the n
+parameter works in reverse of the 2-3 trees above: in each recursive call it
+increates --- and tracks the height of the 2-3 trees that are allowed at
+that level.
 
 > -- still like a nested type --- number grows with each recursive use
 > data Seq n a where
@@ -60,28 +65,22 @@ height of the 2-3 trees that are allowed at that level.
 >    Unit :: TwoThree n a -> Seq n a
 >    More :: Some n a -> Seq (S n) a -> Some n a -> Seq n a
 
-> data Some n a = One (TwoThree n a) | Bump (Tuple (TwoThree n a))
->    deriving (Eq,Show,Functor,Foldable,Traversable)
+I've modified the `Some` datatype to a use Tuple instead of having a separate
+Two/Three constructors.  Not sure that it helps anything.
 
-> toList :: Some n a -> [TwoThree n a]
-> toList (One x) = [x]
-> toList (Bump (Pair x y)) = [x, y]
-> toList (Bump (Triple x y z)) = [x,y,z]
+> data Some n a =
+>     One (TwoThree n a)
+>   | Bump (Tuple (TwoThree n a))
+>       deriving (Eq,Show,Functor,Foldable,Traversable)
 
 
-> head :: Seq Z a -> a 
+
+> head :: Seq n a -> TwoThree n a
 > head Nil = error "no head"
-> head (Unit (Leaf x)) = x
-> head (More (One (Leaf x)) _ _ ) = x
-> head (More (Bump (Pair (Leaf x) _)) _ _) = x
-> head (More (Bump (Triple (Leaf x) _ _)) _ _) = x
-
-> head23 :: Seq n a -> TwoThree n a
-> head23 Nil = error "no head"
-> head23 (Unit x) = x
-> head23 (More (One x) _ _ ) = x
-> head23 (More (Bump (Pair x _)) _ _) = x
-> head23 (More (Bump (Triple x _ _)) _ _) = x
+> head (Unit x) = x
+> head (More (One x) _ _ ) = x
+> head (More (Bump (Pair x _)) _ _) = x
+> head (More (Bump (Triple x _ _)) _ _) = x
 
 > cons :: TwoThree n a -> Seq n a -> Seq n a
 > cons x Nil = Unit x
@@ -125,28 +124,35 @@ height of the 2-3 trees that are allowed at that level.
 >          chop :: TwoThree n a -> TwoThree n a
 >          chop (Node (Triple _ y z)) = Node (Pair y z)
 >     Nothing -> error "impossible -- nil cases above" 
-> {-
->   case head23 q of
->     Node (Pair x y) -> More (Two x y) (tail q) u
->     Node (Triple x _ _) -> More (One x) (map1 chop q) u -}
 > 
+>
+> -- | This part isn't so much fun. Why do we need a list? what is the invariant about
+> -- the number of elements in the list that is passed to 'glue'? Could it grow arbitrarily large?
+> -- How do we figure out the running time for glue, then?
+>
 > 
 > toTuples :: [a] -> [Tuple a]
 > toTuples [ ] = [ ]
-> toTuples [x, y ] = [Pair x y ]
+> toTuples [x, y] = [Pair x y ]
 > toTuples [x, y, z, w] = [Pair x y, Pair z w]
 > toTuples (x : y : z : xs) = Triple x y z : toTuples xs
+>
+> toList :: Some n a -> [TwoThree n a]
+> toList (One x) = [x]
+> toList (Bump (Pair x y)) = [x, y]
+> toList (Bump (Triple x y z)) = [x,y,z]
+
+>
 >
 > 
 > glue :: Seq n a -> [ TwoThree n a ] -> Seq n a -> Seq n a
 > glue Nil as q2 = foldr cons q2 as
 > glue q1 as Nil = foldl snoc q1 as
 > glue (Unit x) as q2 = foldr cons q2 (x : as)
-> glue q1 as (Unit y) = foldl snoc q1 (as ++ [y ])
+> glue q1 as (Unit y) = foldl snoc q1 (as ++ [y])
 > glue (More u1 q1 v1) as (More u2 q2 v2) =
 >   More u1
->   (glue q1
->    (map Node (toTuples (toList v1 ++ as ++ toList u2))) q2) v2
+>   (glue q1 (map Node (toTuples (toList v1 ++ as ++ toList u2))) q2) v2
 > 
 
 > map1 :: (TwoThree n a -> TwoThree n a) -> Seq n a  -> Seq n a
