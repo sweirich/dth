@@ -19,11 +19,30 @@ extra-source-files:  CHANGELOG.md
 
 library
   exposed-modules:     Nested
-                     , DFinger
+                     , Peano
+                     , SubstScoped
+                     , Scoped
                      , Nat
-  other-modules:       Two
+  other-modules:       
   -- other-extensions:
   build-depends:       base >=4.13 && <4.14
                      , some
+                     , singletons
+                     , deepseq
+                     , pretty
   -- hs-source-dirs:
   default-language:    Haskell2010
+
+executable Bench
+  main-is:            Main.hs
+  other-modules:      Peano
+                    , Nested
+  build-depends:       base >=4.13 && <4.14
+                     , some
+                     , singletons
+                     , deepseq
+                     , pretty
+                     , criterion
+  -- hs-source-dirs:
+  default-language:    Haskell2010
+  ghc-options:       -O2

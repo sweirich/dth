@@ -36,6 +36,7 @@ Warning: this module uses some *fancy* types.
 > import Control.Monad (ap)
 > import Data.Type.Equality
 > import Data.Some
+> import Peano
 
 Auxiliary type: Two
 -------------------
@@ -177,15 +178,15 @@ write.
 
 First, let's define some natural numbers so that we can count.
 
-> data Nat = S Nat | Z 
+< data Peano = S Peano | Z 
 
 Now, let's index the tree by its height and require that both subtrees in a
 node have the same height. We'll use datatype promotion with our GADT so that
 we can refer to natural numbers in types.
 
-> data ITree (n :: Nat) (a :: Type) where
->   DLeaf :: a -> ITree 'Z a
->   DNode :: Two (ITree n a) -> ITree ('S n) a
+> data ITree (n :: Peano) (a :: Type) where
+>   DLeaf :: a -> ITree Z a
+>   DNode :: Two (ITree n a) -> ITree (S n) a
 
 In this case, our tree datatype is now a GADT --- the result types of the leaf
 and node data constructors differ in the height index [4].
@@ -274,7 +275,7 @@ There is still one more way to define a perfect binary tree. We can use a type
 family.  This type-level function computes the appropriate nesting of `Two`
 copies of its argument.
 
-> type family FTwo (n :: Nat) (a :: Type) :: Type where
+> type family FTwo (n :: Peano) (a :: Type) :: Type where
 >   FTwo Z     a = a
 >   FTwo (S n) a = Two (FTwo n a)
 
@@ -298,29 +299,20 @@ n a` alone.  Therefore we also include a singleton type for the natural
 number [5]. 
 
 > data FTree a where
->   FTree :: SNat n -> FTwo n a -> FTree a 
-
-> -- | Singleton type for natural numbers
-> data SNat :: Nat -> Type where
->   SZ :: SNat Z
->   SS :: SNat n -> SNat (S n)
-
-> deriving instance Show (SNat n)
-> -- no instance for Eq (SNat n)
-> -- no instance for Ord (SNat n)
+>   FTree :: Sing n -> FTwo n a -> FTree a 
 
 Here are some examples of the `FTree` type. Compare them to the nested datatype
 version above --- the singleton nat corresponds to the height prefix on the nested
 tree.
 
 > f1 :: FTree Int
-> f1 = FTree SZ 1
+> f1 = FTree zeroP 1
 >
 > f2 :: FTree Int
-> f2 = FTree (SS SZ) (Two 1 2)
+> f2 = FTree (succP zeroP) (Two 1 2)
 >
 > f3 :: FTree Int
-> f3 = FTree (SS (SS SZ)) $ Two (Two 1 2) (Two 3 4)
+> f3 = FTree (succP (succP zeroP)) $ Two (Two 1 2) (Two 3 4)
 
 However, with the type family-based type definition, we lose all possibility
 of deriving our standard instances. We must implement all of them by
@@ -328,37 +320,28 @@ hand. The implementations are fairly straightforward, but do require type
 annotations for the local `go` functions to resolve ambiguity.
 
 > instance Show a => Show (FTree a) where
->   showsPrec d (FTree n x) = go d n x where
->      go :: Int -> SNat n -> FTwo n a -> ShowS
+>   showsPrec d (FTree n x) = go d (peanoView n) x where
+>      go :: Int -> PeanoView n -> FTwo n a -> ShowS
 >      go d SZ x = showsPrec d x
 >      go d (SS n) (Two p1 p2) = showParen (d > 10) $
 >                     showString "Two " 
->                   . go 11 n p1
+>                   . go 11 (peanoView n) p1
 >                   . showString " "
->                   . go 11 n p2
+>                   . go 11 (peanoView n) p2
 >
 
-To implement equality for `FTree`, we need a way to 
-first make sure that the two trees are the same size before
-comparison. We can do this by using the following type class 
-instance, which produces a proof that the two type-level nats
-are the same when the terms are the same.
-
-> instance TestEquality SNat where
->   testEquality :: SNat n1 -> SNat n2 -> Maybe (n1 :~: n2)
->   testEquality SZ SZ = Just Refl
->   testEquality (SS n) (SS m) 
->     | Just Refl <- testEquality n m
->     = Just Refl
->   testEquality _ _ = Nothing
+To implement equality for `FTree`, we need a way to first make sure that the
+two trees are the same size before comparison. We can do this by using the
+function `testEquality`, which produces a proof that the two type-level nats
+are the same when their runtime versions terms are the same.
 
 > instance Eq a => Eq (FTree a) where
 >   (FTree n1 x1) == (FTree n2 x2) 
 >     | Just Refl <- testEquality n1 n2
->     = eqFTwo n1 x1 x2 where
->          eqFTwo :: SNat n -> FTwo n a -> FTwo n a -> Bool
+>     = eqFTwo (peanoView n1) x1 x2 where
+>          eqFTwo :: PeanoView n -> FTwo n a -> FTwo n a -> Bool
 >          eqFTwo SZ = (==) 
->          eqFTwo (SS n) = \(Two x1 x2)(Two y1 y2) -> eqFTwo n x1 y1 && eqFTwo n x2 y2
+>          eqFTwo (SS n) = \(Two x1 x2)(Two y1 y2) -> eqFTwo (peanoView n) x1 y1 && eqFTwo (peanoView n) x2 y2
 >   _ == _ = False
 
 Below, the scoped type variables & type application in the definition of the
@@ -367,24 +350,24 @@ polymorphic recursion only on the height argument `n`, and not on the type
 arguments `a` and `b`.
 
 > instance Functor FTree where
->    fmap f (FTree n x) = FTree n (go n f x) where
->      go :: forall n a b. SNat n -> (a -> b) -> FTwo n a -> FTwo n b
+>    fmap f (FTree n x) = FTree n (go (peanoView n) f x) where
+>      go :: forall n a b. PeanoView n -> (a -> b) -> FTwo n a -> FTwo n b
 >      go SZ f a = (f a)
->      go (SS (m :: SNat m)) f p = fmap (go @m @a @b m f) p
+>      go (SS (m :: SNat m)) f p = fmap (go @m @a @b (peanoView m) f) p
 
 > instance Foldable FTree where
 >    foldMap :: Monoid m => (a -> m) -> FTree a -> m
->    foldMap f (FTree n x) = go n f x where
->      go :: Monoid m => SNat n -> (a -> m) -> FTwo n a -> m
+>    foldMap f (FTree n x) = go (peanoView n) f x where
+>      go :: Monoid m => PeanoView n -> (a -> m) -> FTwo n a -> m
 >      go SZ f a = f a
->      go (SS n) f p = foldMap (go n f) p
+>      go (SS n) f p = foldMap (go (peanoView n) f) p
 
 > instance Traversable FTree where
 >    traverse :: Applicative f => (a -> f b) -> FTree a -> f (FTree b)
->    traverse f (FTree n x) = FTree n <$> go n f x where
->      go :: Applicative f => SNat n -> (a -> f b) -> FTwo n a -> f (FTwo n b)
+>    traverse f (FTree n x) = FTree n <$> go (peanoView n) f x where
+>      go :: Applicative f => PeanoView n -> (a -> f b) -> FTwo n a -> f (FTwo n b)
 >      go SZ f a = f a
->      go (SS n) f p = traverse (go n f) p
+>      go (SS n) f p = traverse (go (peanoView n) f) p
 
 
 
@@ -442,10 +425,10 @@ of `FTwo n a`. (We don't need to explicitly supply `n` because type inference
 can determine this type argument via `SNat`.)
 
 > invertFTree :: forall a. FTree a -> FTree a
-> invertFTree (FTree n t) = FTree n (invert @a n t) where
->    invert :: forall a n. SNat n -> FTwo n a -> FTwo n a
+> invertFTree (FTree n t) = FTree n (invert @a (peanoView n) t) where
+>    invert :: forall a n. PeanoView n -> FTwo n a -> FTwo n a
 >    invert SZ a = a
->    invert (SS n) p = swap (fmap (invert @a n) p)
+>    invert (SS n) p = swap (fmap (invert @a (peanoView n)) p)
 
 Tree replication
 ----------------
@@ -476,28 +459,32 @@ argument as `SNat` and then use that runtime natural number to control the size 
 that we generate. Without this, we don't have the static guarantee that we are generating
 a perfect tree.
 
+> {-
 > fromInt :: Int -> Some SNat
 > fromInt 0 = Some $ SZ
 > fromInt n = case (fromInt (n-1)) of
 >   Some sn -> Some $ SS sn
+> -}
 
 > replicateDTree :: a -> Int -> DTree a
-> replicateDTree x i = case fromInt i of
->     Some n -> DTree (go x n)
+> replicateDTree x i = case somePeano i of
+>     Just (Some n) -> DTree (go x (peanoView n))
 >       where
->         go :: a -> SNat n -> ITree n a
+>         go :: a -> PeanoView n -> ITree n a
 >         go x SZ     = DLeaf x
 >         go x (SS m) = DNode (Two y y) where
->            y = go x m
+>            y = go x (peanoView m)
+>     Nothing -> error "invalid argument"
 >
 > replicateFTree :: a -> Int -> FTree a
-> replicateFTree x i = case fromInt i of
->     Some n -> FTree n (go x n)
+> replicateFTree x i = case somePeano i of
+>     Just (Some n) -> FTree n (go x (peanoView n))
 >       where
->         go :: a -> SNat n -> FTwo n a
+>         go :: a -> PeanoView n -> FTwo n a
 >         go x SZ = x
 >         go x (SS m) = Two y y where
->            y = go x m
+>            y = go x (peanoView m)
+>     Nothing -> error "invalid argument"
 
 Microbenchmark
 --------------
@@ -554,33 +541,36 @@ Our `ITree` and `FTwo` types can talk about joining together structures that
  are all the same shape.  But in these cases, while we get a new perfect tree,
  it doesn't have the same height as the original.
 
+> {-
 > type family Add n m where
 >   Add Z m  = m
 >   Add (S n) m = S (Add n m)
+> -}
 
-> djoin :: ITree n (ITree m a) -> ITree (Add n m) a
+> djoin :: ITree n (ITree m a) -> ITree (Plus n m) a
 > djoin (DLeaf t) = t
 > djoin (DNode p) = DNode (djoin <$> p)
 
-> fjoin :: forall a m n. SNat n -> FTwo n (FTwo m a) -> FTwo (Add n m) a
+> fjoin :: forall a m n. PeanoView n -> FTwo n (FTwo m a) -> FTwo (Plus n m) a
 > fjoin SZ t = t
-> fjoin (SS k) p = fjoin @a @m k <$> p
+> fjoin (SS k) p = fjoin @a @m (peanoView k) <$> p
 
 Maybe there is a different interpretation of the `Applicative` and `Monad`
  type classes for `ITree`s?
 
 For Applicatives, we can use the `ZipList` interpretation.
 
+> {-
 > class INat (n :: Nat) where inat :: SNat n
 > instance INat Z where inat = SZ
 > instance INat n => INat (S n) where inat = SS inat
+> -}
 
-
-> instance INat n => Applicative (ITree n) where
->   pure x = go x inat where
->     go :: forall a n. a -> SNat n -> ITree n a
+> instance SingI n => Applicative (ITree n) where
+>   pure x = go x (peanoView sing) where
+>     go :: forall a n. a -> PeanoView n -> ITree n a
 >     go x SZ = DLeaf x
->     go x (SS m) = DNode (Two (go x m) (go x m))
+>     go x (SS m) = DNode (Two (go x (peanoView m)) (go x (peanoView m)))
 >   f <*> t = go f t where
 >     go :: forall n a b. ITree n (a -> b) -> ITree n a -> ITree n b
 >     go (DLeaf f) (DLeaf x) = DLeaf (f x)
@@ -632,12 +622,12 @@ this data, we could get a linear time conversion.
 > toDTree t = forget <$> go t 
 >   where
 >     go :: Tree a -> Maybe (SomeITree a)
->     go (Leaf x) = return (SomeITree SZ (DLeaf x))
+>     go (Leaf x) = return (SomeITree zeroP (DLeaf x))
 >     go (Node p) = traverse go p >>= node where
 >      node :: Two (SomeITree a) -> Maybe (SomeITree a)
 >      node (Two (SomeITree n1 u1) (SomeITree n2 u2)) = do
 >        Refl <- testEquality n1 n2
->        return $ SomeITree (SS n1) (DNode (Two u1 u2))
+>        return $ SomeITree (succP n1) (DNode (Two u1 u2))
 >
 > fromDTree :: DTree a -> Tree a
 > fromDTree (DTree t) = go t where
@@ -647,18 +637,18 @@ this data, we could get a linear time conversion.
 
 
 > toFTree :: Tree a -> Maybe (FTree a)
-> toFTree (Leaf x) = return (FTree SZ x)
+> toFTree (Leaf x) = return (FTree zeroP x)
 > toFTree (Node p) = traverse toFTree p >>= node where
 >    node :: Two (FTree a) -> Maybe (FTree a)
 >    node (Two (FTree n1 u1) (FTree n2 u2)) = do
 >      Refl <- testEquality n1 n2
->      return $ FTree (SS n1) (Two u1 u2)
+>      return $ FTree (succP n1) (Two u1 u2)
 >
 > fromFTree :: FTree a -> Tree a
-> fromFTree (FTree n t) = go n t where
->      go :: SNat n -> FTwo n a -> Tree a
+> fromFTree (FTree n t) = go (peanoView n) t where
+>      go :: PeanoView n -> FTwo n a -> Tree a
 >      go SZ  x    = Leaf x
->      go (SS n) p = Node (go n <$> p)
+>      go (SS n) p = Node (go (peanoView n) <$> p)
 
 
 
@@ -666,14 +656,28 @@ Other examples
 --------------
 
 Perfect trees are a fairly constrained, symmetric and artificial data
- structure. Was it just a fluke that we could define the GADT and type-family
+ structure. Was it just a fluke that we could define a GADT and type-family
 analogues to the nested datatype definition?
 
 I don't think so. 
 
-* Other Okasaki data structures
-* Well-scoped expressions
-* Finger trees
+* [Well-scoped expressions](http://www.staff.city.ac.uk/~ross/papers/debruijn.html)
+
+A famous use of nested datatypes is to ensure that lambda calculus expressions
+ are well-scoped. This idea underlies the design of Kmett's
+ [bound](https://www.schoolofhaskell.com/user/edwardk/bound) library.
+
+However, instead of using a nested datatype, it is also possible to use a
+type-level natural number to bound the scopes of bound variables, as shown
+in [this implementation](https://github.com/sweirich/lennart-lambda/blob/master/lib/DeBruijnScoped.lhs).
+
+* [Finger trees](http://www.staff.city.ac.uk/~ross/papers/FingerTree.html)
+
+Haskell's implementation of the [sequence](https://hackage.haskell.org/package/containers-0.6.4.1/docs/Data-Sequence.html) data structure is built on FingerTrees. In the module [DFinger.lhs](DFinger.lhs) I've sketched out a nat-indexed replacement to the nested datatype. 
+
+* More examples? I am sure that there are more to be found. These examples are
+   just a start.
+
 
 Furthermore, how robust are nested datatypes, in general. For example, I don't
 see how to augment the `NTree` data structrue to include values at the nodes
