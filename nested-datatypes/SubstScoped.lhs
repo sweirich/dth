@@ -23,6 +23,21 @@ This is a general purpose library for defining substitution for debruijn indices
 > import Data.Foldable
 > import Data.Traversable
 > import Prelude hiding (all)
+>
+>
+
+In the `bound` library, we have the following definition:
+
+data Exp a = V a | App (Exp a) (Exp a) | Lam (Scope () Exp a)
+newtype Scope b f a = f (Var b (f a))
+data Var b a = B b | F a
+
+Compressing the definitions we get
+
+data Exp a = V a | App (Exp a) (Exp a) | Lam (Exp (Maybe (Exp a)))
+
+
+
 
 > ------------------------------------
 > -- Directly taken from Bound.Term

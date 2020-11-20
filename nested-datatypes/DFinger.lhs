@@ -25,7 +25,7 @@ It is a reinterpretation of the FingerTree data structure using GADTs in place o
 >
 > import Prelude hiding (tail,head)
 > import Data.Kind (Type)
-> import Nat
+> import Nat hiding (Some)
 
 Two-Three Trees
 ---------------

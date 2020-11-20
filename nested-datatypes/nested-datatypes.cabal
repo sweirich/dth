@@ -23,6 +23,7 @@ library
                      , SubstScoped
                      , Scoped
                      , Nat
+                     , DFinger
   other-modules:       
   -- other-extensions:
   build-depends:       base >=4.13 && <4.14
@@ -30,6 +31,7 @@ library
                      , singletons
                      , deepseq
                      , pretty
+                     , generic-deriving
   -- hs-source-dirs:
   default-language:    Haskell2010
 
