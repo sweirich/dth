@@ -21,7 +21,7 @@ It is a reinterpretation of the FingerTree data structure using GADTs in place o
 > {-# OPTIONS_GHC -Wno-name-shadowing -Wno-unticked-promoted-constructors #-}
 
 
-> module Finger where
+> module DFinger where
 >
 > import Prelude hiding (tail,head)
 > import Data.Kind (Type)
