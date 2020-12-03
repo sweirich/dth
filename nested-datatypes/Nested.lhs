@@ -2,7 +2,6 @@ title: Do we need nested datatypes?
 
 > {-# LANGUAGE AllowAmbiguousTypes #-}
 > {-# LANGUAGE DataKinds #-}
-> {-# LANGUAGE DeriveGeneric #-}
 > {-# LANGUAGE DeriveTraversable #-}
 > {-# LANGUAGE GADTs #-}
 > {-# LANGUAGE InstanceSigs #-}
@@ -28,11 +27,11 @@ title: Do we need nested datatypes?
 Sometimes we want non-regular datatypes
 =======================================
 
-Although typed functional programming languages excel at representing tree
-structured data, not all trees are regular.  Sometimes we would like to work
-with trees of a more particular form than algebraic datatypes express. 
+Typed functional programming languages excel at representing tree structured
+data. Most of the time, this means that we are working with regular
+recursive datatypes.
 
-For example, we can represent a regular binary tree, with values only stored
+For example, we can represent a normal binary tree, with values only stored
  at the leaves, using the following definition. 
 
 > data Tree (a :: Type) 
@@ -40,17 +39,39 @@ For example, we can represent a regular binary tree, with values only stored
 >   | Node (Two (Tree a))
 >      deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
-This definition is for a binary tree, where each node has exactly two
-children.  To simplify later comparison, we record that this is a binary tree
-using the following simple datatype [0]. This datatype is a pair of two
-values of the same type.
+This type definition represents a binary tree where each node has exactly two
+children.  To simplify later comparison, we record that this is a *binary*
+tree using the following simple datatype---a pair of two values of the same
+type [0].
 
 > data Two a = Two a a
 >    deriving (Eq, Ord, Read, Show, Functor, Foldable, Traversable)
 
-But the tree type above can be used to express all sorts of trees, of many
-different shapes. What if we *only* want our type to include *perfect* trees
---- i.e. those where every path from the root to a leaf is the same length.
+The tree type above can be used to express all sorts of trees, of many
+ different shapes. But what if we want our type to only include *perfect* trees
+ --- i.e. those where every path from the root to a leaf is the same length.
+
+For example, consider the following trees that we can represent with this 
+type.
+
+> -- a perfect tree
+> t1 :: Tree Int
+> t1 = Leaf 1
+
+> -- a perfect tree
+> t2 :: Tree Int
+> t2 = Node (Two (Leaf 1) (Leaf 2))
+
+> -- not a perfect tree
+> t3 :: Tree Int
+> t3 = Node (Two (Node (Two (Leaf 1) (Leaf 2))) (Leaf 3))
+
+> -- a perfect tree, but not the same as t3
+> t4 :: Tree Int
+> t4 = Node (Two (Node (Two (Leaf 1) (Leaf 2))) (Node (Two (Leaf 3) (Leaf 4))))
+
+Perfect trees are symmetric and complete. They have exactly `2^n` leaf values,
+ where `n` is the height of the tree.
 
 Can we rule out imperfect trees using the type system?
 
@@ -68,23 +89,6 @@ values instead of carrying two values that are trees.
 
 With this change, this tree definition can *only* represent perfect trees.
 
-For example, we can represent the following regular trees which may or may not
-be perfect with the `Tree` type.
-
-> -- a perfect tree
-> t1 :: Tree Int
-> t1 = Leaf 1
-
-> -- a perfect tree
-> t2 :: Tree Int
-> t2 = Node (Two (Leaf 1) (Leaf 2))
-
-> -- not a perfect tree
-> t3 :: Tree Int
-> t3 = Node (Two (Node (Two (Leaf 1) (Leaf 2))) (Leaf 3))
-
-However, with the `NTree` type we can only represent perfect trees.
-
 > -- a perfect tree
 > n1 :: NTree Int
 > n1 = NLeaf 1
@@ -97,17 +101,17 @@ However, with the `NTree` type we can only represent perfect trees.
 > -- n3 :: NTree Int
 > -- n3 = NNode (NNode (NLeaf (Two (Two 1 2) 3)))
 
-> -- a perfect tree, but not the same as t3
+> -- a perfect tree
 > n4 :: NTree Int
 > n4 = NNode (NNode (NLeaf (Two (Two 1 2) (Two 3 4))))
 
 What is the general form of values of type `NTree Int`? It is some number of
-`NNode` data constructors, followed by a `NLeaf` data
+`NNode` data constructors, followed by an `NLeaf` data
 constructor containing a value of type
 
 <      (Two (Two ... (Two Int)))
 
-That means that this structure is constrained to store exactly `2^n` `Int`
+In other words, this structure is constrained to store exactly `2^n` `Int`
  values, in a perfectly symmetric tree shape.
 
 In fact, we can decode "prefix" of these values i.e. the sequence of `NNode`
@@ -501,7 +505,7 @@ Validating perfect trees
 ------------------------
 
 Can we write functions that convert a `Tree` to be an `NTree` or `DTree` if it
-happens to be perfect? Or inject a `NTree` or `DTree` into a regular tree?
+happens to be perfect? Or inject an `NTree` or `DTree` into a regular tree?
 
 Both validation functions can be expressed with the same general structure:
 recur over the tree datatype, and use a "smart constructor", called `node`,
@@ -532,7 +536,7 @@ part of the recursion (instead of recalculating it at every step).
 >      node :: Two (DTree a) -> Maybe (DTree a)
 >      node (Two (DTree u1) (DTree u2)) = do
 >        Refl <- testEquality (heightHTree u1) (heightHTree u2)
->        return $ (DTree (DNode (Two u1 u2)))
+>        return (DTree (DNode (Two u1 u2)))
 
 For the operation of "forgetting" that a tree is perfect, the GADT-based
 version looks like the identity function it should be, modulo a little
