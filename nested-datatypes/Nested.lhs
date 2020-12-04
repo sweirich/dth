@@ -126,9 +126,9 @@ of the `NTree` type in its definition, but the argument to this recursive
 call is *not* just the parameter to the recursive type itself. Regular
 recursion requires this argument to always be the parameter `a` and
 non-regular recursion happens when some recursive call uses something else
-(like `Two a`).
+(like `Two a`). [1]
 
-I sometimes find nested datatypes a bit confusing. How can a simple
+I often find nested datatypes confusing. How can a simple
 modification to the type make such a big difference in the structure? How
 should I express similar constraints? Once I have a nested data type
 definition, what can I do with it? And how does this approach compare to
@@ -195,7 +195,7 @@ uses `Two a` instead of `a` in its definition.
 
 In the absence of type annotations, like the definition of `ntmap` above,
 Hindley-Milner type inference with polymorphic recursion is undecidable
-[1][2]. As a consequence, if we remove the type annotation, then we get an
+[2][3]. As a consequence, if we remove the type annotation, then we get an
 error message from GHC:
 
      nested.lhs:(118,3)-(119,44): error: …
@@ -212,7 +212,7 @@ So, when working with nested datatypes, we must always remember to annotate
 the type of the function---GHC cannot figure it out for us.  In the presence
 of this type annotation, polymorphic recursion is not difficult and has
 been a part of Haskell for years. (The Haskell 98 report specifically states
-that type signatures can be used to support polymorphic recursion [3].)
+that type signatures can be used to support polymorphic recursion [4].)
 
 Representing perfect trees with GADTs
 =====================================
@@ -237,7 +237,7 @@ so that we can refer to natural numbers in types.
 >   DNode :: Two (HTree h a) -> HTree (S h) a
 
 This data type definition is a GADT because the result types of the leaf and
-node data constructors differ in the height index [4]. So that we can express
+node data constructors differ in the height index [5]. So that we can express
 this difference in the result type, we use GADT syntax for the definition.
 
 But, we haven't yet implemented a type equivalent to `NTree a` because the
@@ -335,7 +335,7 @@ three components:
 
 1. A run time version of the (so far) compile-time only height. This GADT,
   called a *singleton* type, exactly reflects the structure of the
- `Nat` type above.
+ `Nat` type above. [6]
 
 > data SNat n where
 >   SZ :: SNat Z
@@ -639,11 +639,11 @@ nested datatype.
 `(a,a)` instead of `Two`. However, it is convenient in modern Haskell to
  have the appropriate definitions of `fmap` etc. available for this
 auxiliary type.
-
-[1]: Fritz Henglein, Type Inference with Polymorphic Recursion.
+[1]: Regular datatypes produce regular trees, i.e. those that are either finite or self similar. Since the collection of perfect trees is a subset of normal binary trees (which are regular) it is a bit confusing that we use a non-regular datatype to represent them. But, note that this nested datatype definition includes a height "prefix" that prevents it from being self-similar (i.e. we cannot embed smaller values of this type directly into larger values). 
+[2]: Fritz Henglein, Type Inference with Polymorphic Recursion.
 ACM Transactions on Programming Languages and Systems. Vol 15, Issue 2. April 1993.
-[2]: Assaf J Kfoury, Jerzy  Tiuryn, Paweł Urzyczyn. Type reconstruction in the presence of polymorphic recursion. ACM Transactions on Programming Languages and Systems. Vol 15, Issue 2. April 1993.
-[3]: https://www.haskell.org/onlinereport/decls.html#type-signatures
-[4]: I follow the terminology of Coq and call `n` a type *index* (because it varies in the
+[3]: Assaf J Kfoury, Jerzy  Tiuryn, Paweł Urzyczyn. Type reconstruction in the presence of polymorphic recursion. ACM Transactions on Programming Languages and Systems. Vol 15, Issue 2. April 1993.
+[4]: https://www.haskell.org/onlinereport/decls.html#type-signatures
+[5]: I follow the terminology of Coq and call `n` a type *index* (because it varies in the
 result type) and `a` a type *parameter* (because it does not).
-[5]: We could use https://hackage.haskell.org/package/singletons for these types but it is simpler to just write them here.
+[6]: We could use https://hackage.haskell.org/package/singletons for these types but it is simpler to just write them here.
