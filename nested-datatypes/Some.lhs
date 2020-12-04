@@ -1,6 +1,6 @@
 > module Some where
 
-> data Some a = One a | Two a a | Three a a a deriving (Eq,Ord,Read,Show)
+
 
 > instance Foldable Some where
 >   foldMap f (One x) = f x
