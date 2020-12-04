@@ -94,9 +94,6 @@ Compared to the original nested datatype version, the `Unit` and `Some`
 > tail (More (One _ ) q u) = more0 q u
 >
 > more0 :: Seq (S n) a -> Some (TwoThree n a) -> Seq n a
-> more0 Nil (One y) = Unit y
-> more0 Nil (Two y z) = More (One y) Nil (One z)
-> more0 Nil (Three y z w) = More (One y) Nil (Two z w)
 > more0 q u =
 >   case uncons q of
 >     Just (Node (Pair x y), tq) -> More (Two x y) tq u
@@ -104,7 +101,11 @@ Compared to the original nested datatype version, the `Unit` and `Some`
 >        where
 >          chop :: TwoThree n a -> TwoThree n a
 >          chop (Node (Triple _ y z)) = Node (Pair y z)
->     Nothing -> error "impossible -- nil cases above" 
+>     Nothing -> case u of
+>                  (One y) -> Unit y
+>                  (Two y z) -> More (One y) Nil (One z)
+>                  (Three y z w) -> More (One y) Nil (Two z w)
+    
 
 > map1 :: (TwoThree n a -> TwoThree n a) -> Seq n a  -> Seq n a
 > map1 _f Nil = Nil
@@ -114,8 +115,6 @@ Compared to the original nested datatype version, the `Unit` and `Some`
 > map1 f (More (Three x y z) q u) = More (Three (f x) y z) q u
 
 > -- | Safer combination of head/tail
-> -- is there a better way to extract elements that doesn't rely on 'map1' and 'chop'?
-> -- the code above seems a bit clunky
 > uncons :: Seq n a -> Maybe (TwoThree n a, Seq n a)
 > uncons Nil = Nothing
 > uncons (Unit y) = Just (y,Nil)
