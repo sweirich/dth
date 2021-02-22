@@ -16,3 +16,5 @@
      + "The Influence of Dependent Types", [POPL 2017](https://www.youtube.com/watch?v=GgD0KUxMaQs)
      + "Dependently-Typed Haskell", [StrangeLoop 2017](https://www.youtube.com/watch?v=wNa3MMbhwS4&t=25s)
      + "Dependent Types in Haskell", McMaster 2017, UW 2017, and Comcast FP 2018
+
+See also: [Strongly-typed System F](https://www.cis.upenn.edu/~plclub/blog/2020-06-26-Strongly-typed-System-F/) in a separate repo.
