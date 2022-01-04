@@ -36,7 +36,7 @@ class Semantics repr a where
   leaf :: repr Z a 
   node :: repr h a -> a -> repr h a -> repr (S h) a 
   
-data Tree a = forall h. Tree (Semantics repr a => repr h a)
+data Tree a = forall h. Tree (forall repr. Semantics repr a => repr h a)
 
 zero' = leaf  
 zero  = Tree zero'
