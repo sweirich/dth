@@ -1,4 +1,4 @@
-What are Dependent Types and what are they good for? 
+What are Dependent Types and what are they good for?
 
 Robin Milner famously introduced us to the idea that "well-typed programs do
 not go wrong" and functional programmers have been experiencing the practical
@@ -16,14 +16,3 @@ role of the type checker and the practice of programming.
 In this talk, I will provide a gentle introduction to the world of dependent
 types: from the success stories that programmers can enjoy today to the
 research advances that are coming in future languages.
-
-
-=============================
-
-"The aim of this work is largely a practical one"
-First line of Milner's 1978 paper, "A theory of type polymorphism in programming"
-
-I love this!
-
-Also, Milner's evergreen pun
-
